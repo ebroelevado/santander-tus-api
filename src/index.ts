@@ -84,9 +84,11 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // ── Startup ─────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`[server] Listening on http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`[server] Listening on http://localhost:${PORT}`);
+  });
+}
 
 // Pre-warm caches in background (non-blocking)
 lineIndex.buildLineIndex()

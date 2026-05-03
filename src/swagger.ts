@@ -41,7 +41,7 @@ function buildOptions(): swaggerJsDoc.Options {
       ],
       paths: {},
     },
-    apis: ['./src/routes/*.ts'],
+    apis: ['./src/routes/*.ts', './src/docs/*.yml'],
   };
 }
 
