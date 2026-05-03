@@ -38,8 +38,7 @@ async function post<T>(path: string, body: Record<string, unknown>): Promise<T |
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        // @ts-expect-error node-fetch v2 typing quirk
-        signal: controller.signal,
+        signal: controller.signal as any,
       });
 
       if (!res.ok) {
@@ -110,8 +109,7 @@ export async function getHealth(): Promise<
   try {
     const res = await fetch(`${LEGACY_API_BASE}/health`, {
       method: 'GET',
-      // @ts-expect-error node-fetch v2 typing quirk
-      signal: controller.signal,
+      signal: controller.signal as any,
     });
 
     if (!res.ok) {

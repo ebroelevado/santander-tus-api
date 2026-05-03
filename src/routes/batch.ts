@@ -68,8 +68,8 @@ router.post('/arrivals', async (req: Request, res: Response) => {
           }
         }
 
-        const rawEntries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
-        const allLineLabels: string[] = arrivalsRaw[1] || [];
+        const rawEntries = Array.isArray((arrivalsRaw as any)[0]) ? (arrivalsRaw as any)[0] : [];
+        const allLineLabels: string[] = (arrivalsRaw as any)[1] || [];
 
         const parsedArrivals = parseLegacyArrivals(rawEntries);
 

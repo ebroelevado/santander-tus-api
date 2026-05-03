@@ -59,3 +59,52 @@ export interface LineMapping {
 export interface SchedulesRaw {
   horarios_hardcoded: Record<string, Record<string, string[]>>;
 }
+
+// ─── Parsed Arrival (from legacyParser) ────────────────────────────
+
+export interface ParsedArrival {
+  line: string;
+  destination: string;
+  color: string;
+  minutes: number | null;
+  next: number | null;
+  active: boolean;
+}
+
+// ─── Line Status (from legacyParser) ───────────────────────────────
+
+export interface LineStatusResponse {
+  line: string;
+  active: boolean;
+  frequency_min: number;
+  has_alerts: boolean;
+  alerts: string[];
+  last_known_bus_minutes_ago: number | null;
+  schedule: {
+    status: string;
+    next_scheduled: string | null;
+    service_hours: string | null;
+  };
+}
+
+// ─── Arrivals Response (from arrivals.service) ─────────────────────
+
+export interface ArrivalsResponse {
+  stop: { stopId: number; name: string; lat: number; lng: number };
+  updated: string;
+  arrivals: Arrival[];
+  all_lines: string[];
+}
+
+// ─── Line Summary (lightweight version for listings) ───────────────
+
+export interface LineSummary {
+  id: string;
+  name: string;
+  color: string;
+  text_color: string;
+  destinations: string[];
+  stops: number;
+  has_schedule: boolean;
+  active: boolean;
+}

@@ -1,9 +1,9 @@
 import * as lineIndex from '../sources/lineIndex';
 import { resolveStop } from '../utils/helpers';
 import { toScheduleId } from '../utils/lineMapping';
-import { LineInfo } from '../types';
+import { LineSummary } from '../types';
 
-export async function getLines(): Promise<LineInfo[]> {
+export async function getLines(): Promise<LineSummary[]> {
   await lineIndex.ensureLineIndex();
   const lines = lineIndex.getLines();
   return lines.map(l => ({
@@ -18,7 +18,7 @@ export async function getLines(): Promise<LineInfo[]> {
   }));
 }
 
-export async function getLine(lineId: string): Promise<LineInfo | null> {
+export async function getLine(lineId: string) {
   await lineIndex.ensureLineIndex();
   const line = lineIndex.getLine(lineId);
   if (!line) return null;
@@ -30,9 +30,11 @@ export async function getLine(lineId: string): Promise<LineInfo | null> {
     text_color: line.text_color,
     schedule_id: toScheduleId(line.id) || null,
     destinations: line.destinations,
+    directions: line.directions,
     stats: line.stats,
     has_schedule: line.has_schedule,
     active: line.active,
+    is_circular: line.is_circular,
   };
 }
 

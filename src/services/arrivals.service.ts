@@ -83,7 +83,8 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
           lat: val[1],
           lng: val[2],
           address: '',
-          sentido: 1,
+          sentido: null,
+          lines: [],
           source: 'stops_min',
         });
       }

@@ -26,7 +26,7 @@ export async function planTrip(req: Request, res: Response) {
     return res.status(200).json({ from: { stopId: fromId, name: fromStop.name }, to: { stopId: toId, name: toStop.name }, options: [], summary: { total_options: 0, direct_count: 0, transfer_count: 0, best_duration_min: null, message: 'No route found' } });
   }
 
-  const bestDuration = topOptions[0].duration_min;
+  const bestDuration = topOptions[0].estimated_total_min;
   const directCount = topOptions.filter(o => o.type === 'direct').length;
   const transferCount = topOptions.filter(o => o.type === 'transfer').length;
 

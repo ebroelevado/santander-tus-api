@@ -82,7 +82,7 @@ describe('controllers/trip.controller', () => {
       
       const mockOptions = Array(15).fill(0).map((_, i) => ({
         type: i % 2 === 0 ? 'direct' : 'transfer',
-        duration_min: 10 + i
+        estimated_total_min: 10 + i
       }));
 
       vi.mocked(tripService.buildTripOptions).mockReturnValue(mockOptions as any);
