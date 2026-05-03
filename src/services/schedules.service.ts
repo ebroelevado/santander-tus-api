@@ -15,7 +15,8 @@ function calcFrequency(times: string[]): number | null {
   let totalGap = 0;
   let gaps = 0;
   for (let i = 1; i < times.length; i++) {
-    const gap = timeToMinutes(times[i]) - timeToMinutes(times[i - 1]);
+    let gap = timeToMinutes(times[i]) - timeToMinutes(times[i - 1]);
+    if (gap < 0) gap += 1440; // Handle crossing midnight
     if (gap > 0 && gap < 120) {
       // ignore unreasonable gaps (e.g. night buses)
       totalGap += gap;
@@ -67,11 +68,17 @@ export function fetchNextService(line: string, direction: string, day: string) {
   const times = entry[day];
   const now = currentTimeStr();
   const nowMinutes = timeToMinutes(now);
+  const normalizedNow = nowMinutes < 240 ? nowMinutes + 1440 : nowMinutes;
 
   let nextTime: string | null = null;
+  let nextMinutes: number | null = null;
+
   for (const t of times) {
-    if (timeToMinutes(t) >= nowMinutes) {
+    const tMin = timeToMinutes(t);
+    const normalizedT = tMin < 240 ? tMin + 1440 : tMin;
+    if (normalizedT >= normalizedNow) {
       nextTime = t;
+      nextMinutes = normalizedT;
       break;
     }
   }
@@ -83,7 +90,7 @@ export function fetchNextService(line: string, direction: string, day: string) {
     };
   }
 
-  const minutesFromNow = timeToMinutes(nextTime) - nowMinutes;
+  const minutesFromNow = nextMinutes! - normalizedNow;
 
   return {
     line, direction, day, now,

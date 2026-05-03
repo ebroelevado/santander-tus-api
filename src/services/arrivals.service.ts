@@ -7,6 +7,7 @@ import stopsMinData from '../../data/stops.min.json';
 
 // ─── In-memory arrivals cache with periodic cleanup ──────────────────
 const arrivalsCache = new Map<string, { data: any; ts: number }>();
+const inflightRequests = new Map<string, Promise<any>>();
 
 function cleanArrivalsCache(): void {
   const now = Date.now();
@@ -42,7 +43,15 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
     }
   }
 
-  const arrivalsRaw = await legacyApi.getArrivals(stopId, lineFilter);
+  let fetchPromise = inflightRequests.get(key);
+  if (!fetchPromise) {
+    fetchPromise = legacyApi.getArrivals(stopId, lineFilter).finally(() => {
+      inflightRequests.delete(key);
+    });
+    inflightRequests.set(key, fetchPromise);
+  }
+
+  const arrivalsRaw = await fetchPromise;
   if (!arrivalsRaw || 'error' in arrivalsRaw) {
     throw new Error('legacy_unavailable');
   }

@@ -234,21 +234,23 @@ export async function buildConnections(stopId: number) {
 
     for (const dir of Object.keys(lineInfo.directions)) {
       const stops = lineInfo.directions[dir].stops;
-      const idx = stops.indexOf(stopId);
-      if (idx === -1) continue;
+      const indices = stops.map((id, index) => id === stopId ? index : -1).filter(i => i !== -1);
+      if (indices.length === 0) continue;
 
-      for (let i = idx + 1; i < stops.length; i++) {
-        const targetId = stops[i];
-        if (!connections.has(targetId)) {
-          connections.set(targetId, []);
+      for (const idx of indices) {
+        for (let i = idx + 1; i < stops.length; i++) {
+          const targetId = stops[i];
+          if (!connections.has(targetId)) {
+            connections.set(targetId, []);
+          }
+          const resolved = await resolveStop(targetId);
+          connections.get(targetId)!.push({
+            stopId: targetId,
+            name: resolved?.name || 'Unknown',
+            via_line: lineId,
+            direction: lineInfo.directions[dir].destination,
+          });
         }
-        const resolved = await resolveStop(targetId);
-        connections.get(targetId)!.push({
-          stopId: targetId,
-          name: resolved?.name || 'Unknown',
-          via_line: lineId,
-          direction: lineInfo.directions[dir].destination,
-        });
       }
     }
   }
