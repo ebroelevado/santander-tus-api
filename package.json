@@ -1,7 +1,7 @@
 {
   "name": "santander-tus-api",
   "version": "3.0.0",
-  "description": "🚀 Modern, high-performance API Wrapper for TUS Santander. Features fuzzy search, real-time arrivals, GeoJSON maps, and OpenAPI 3.1 documentation.",
+  "description": "🚀 Wrapper de API moderno y de alto rendimiento para el TUS Santander. Incluye búsqueda difusa, llegadas en tiempo real, mapas GeoJSON y documentación OpenAPI 3.1.",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
