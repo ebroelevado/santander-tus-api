@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import * as legacyApi from '../sources/legacyApi';
 import { CACHE_TTL } from '../config';
 import { resolveStop, formatLocalTime, getColor, getMadridOffset } from '../utils/helpers';
+import { parseLegacyArrivals } from '../utils/legacyParser';
 
 const router = Router();
 
@@ -25,14 +26,14 @@ interface EtdEntry {
 }
 
 function computeEtds(entries: any[], serverTime: Date): EtdEntry[] {
-  return entries.map((entry: any[]): EtdEntry => {
-    const minutes = entry[2] !== undefined ? entry[2] : null;
-    const etdDate = minutes !== null ? new Date(serverTime.getTime() + minutes * 60 * 1000) : null;
+  const parsed = parseLegacyArrivals(entries);
+  return parsed.map((entry): EtdEntry => {
+    const etdDate = entry.minutes !== null ? new Date(serverTime.getTime() + entry.minutes * 60 * 1000) : null;
     return {
-      line: entry[0],
-      destination: entry[1],
-      color: getColor(entry[0]),
-      minutes,
+      line: entry.line,
+      destination: entry.destination,
+      color: getColor(entry.line),
+      minutes: entry.minutes,
       etd: etdDate ? etdDate.toISOString() : null,
       etd_local: etdDate ? formatLocalTime(etdDate) : null,
     };
@@ -93,15 +94,14 @@ router.get('/stops/:stop/etd', async (req: Request, res: Response) => {
 
     const arrivalsRaw = await legacyApi.getArrivals(stopId);
 
-    if (!arrivalsRaw || 'error' in arrivalsRaw) {
+    if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
       return res.status(503).json({
         error: 'legacy_unavailable', message: 'Legacy API no responde', source: 'legacy_api',
         timestamp: new Date().toISOString(),
       });
     }
 
-    const rawData = arrivalsRaw as any[];
-    const entries: any[] = Array.isArray(rawData[0]) ? rawData[0] : [];
+    const entries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
     const serverTime = new Date();
 
     const arrivals = computeEtds(entries, serverTime);
@@ -147,15 +147,14 @@ router.get('/stops/:stop/arrivals/absolute', async (req: Request, res: Response)
 
     const arrivalsRaw = await legacyApi.getArrivals(stopId);
 
-    if (!arrivalsRaw || 'error' in arrivalsRaw) {
+    if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
       return res.status(503).json({
         error: 'legacy_unavailable', message: 'Legacy API no responde', source: 'legacy_api',
         timestamp: new Date().toISOString(),
       });
     }
 
-    const rawData = arrivalsRaw as any[];
-    const entries: any[] = Array.isArray(rawData[0]) ? rawData[0] : [];
+    const entries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
     const serverTime = new Date();
 
     const arrivals = computeEtds(entries, serverTime);
@@ -164,7 +163,7 @@ router.get('/stops/:stop/arrivals/absolute', async (req: Request, res: Response)
       stop: { stopId: stop.stopId, name: stop.name, lat: stop.lat, lng: stop.lng },
       server_time: serverTime.toISOString(),
       arrivals,
-      all_lines: rawData[1] || [],
+      all_lines: arrivalsRaw[1] || [],
     });
   } catch (err: any) {
     console.error('[time] Error:', err?.message || err);

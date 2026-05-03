@@ -52,7 +52,7 @@ describe('controllers/lines.controller', () => {
   describe('getLineDetail', () => {
     it('should return 404 if line not found', async () => {
       mockReq = { params: { line: '99' } };
-      vi.mocked(linesService.getLineDetail).mockResolvedValue(null);
+      vi.mocked(linesService.getLine).mockResolvedValue(null);
 
       await linesController.getLineDetail(mockReq as Request, mockRes as Response);
 
@@ -62,11 +62,11 @@ describe('controllers/lines.controller', () => {
 
     it('should return line details if found', async () => {
       mockReq = { params: { line: '1' } };
-      vi.mocked(linesService.getLineDetail).mockResolvedValue({ id: '1' } as any);
+      vi.mocked(linesService.getLine).mockResolvedValue({ id: '1', name: 'L1' } as any);
 
       await linesController.getLineDetail(mockReq as Request, mockRes as Response);
 
-      expect(resJson).toHaveBeenCalledWith({ id: '1' });
+      expect(resJson).toHaveBeenCalledWith({ id: '1', name: 'L1' });
     });
   });
 

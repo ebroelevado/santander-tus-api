@@ -22,7 +22,7 @@ describe('controllers/trip.controller', () => {
     resStatus = vi.fn().mockReturnValue({ json: resJson });
     mockRes = { json: resJson, status: resStatus };
 
-    vi.mocked(lineIndex.buildLineIndex).mockResolvedValue(undefined);
+    vi.mocked(lineIndex.ensureLineIndex).mockResolvedValue(undefined);
   });
 
   describe('planTrip', () => {

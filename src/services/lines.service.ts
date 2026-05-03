@@ -1,10 +1,10 @@
 import * as lineIndex from '../sources/lineIndex';
-import * as openData from '../sources/openData';
-import { toScheduleId } from '../utils/lineMapping';
 import { resolveStop } from '../utils/helpers';
+import { toScheduleId } from '../utils/lineMapping';
+import { LineInfo } from '../types';
 
-export async function getLines() {
-  await lineIndex.buildLineIndex();
+export async function getLines(): Promise<LineInfo[]> {
+  await lineIndex.ensureLineIndex();
   const lines = lineIndex.getLines();
   return lines.map(l => ({
     id: l.id,
@@ -18,8 +18,8 @@ export async function getLines() {
   }));
 }
 
-export async function getLineDetail(lineId: string) {
-  await lineIndex.buildLineIndex();
+export async function getLine(lineId: string): Promise<LineInfo | null> {
+  await lineIndex.ensureLineIndex();
   const line = lineIndex.getLine(lineId);
   if (!line) return null;
 
@@ -37,22 +37,23 @@ export async function getLineDetail(lineId: string) {
 }
 
 export async function getLineStops(lineId: string) {
-  await lineIndex.buildLineIndex();
+  await lineIndex.ensureLineIndex();
   const line = lineIndex.getLine(lineId);
   if (!line) return null;
 
-  const allStops: number[] = [];
-  for (const [, dData] of Object.entries(line.directions)) {
-    for (const sid of dData.stops) {
-      if (!allStops.includes(sid)) allStops.push(sid);
+  const stopsSet = new Set<number>();
+  for (const dir of Object.values(line.directions)) {
+    for (const sid of dir.stops) {
+      stopsSet.add(sid);
     }
   }
 
+  const allStops = Array.from(stopsSet);
   return { line: line.id, color: line.color, stops: allStops, total: allStops.length };
 }
 
 export async function getLineRoute(lineId: string, dirFilter: string) {
-  await lineIndex.buildLineIndex();
+  await lineIndex.ensureLineIndex();
   const line = lineIndex.getLine(lineId);
   if (!line) return null;
 
@@ -61,10 +62,8 @@ export async function getLineRoute(lineId: string, dirFilter: string) {
     if (dirFilter !== 'all' && dId !== dirFilter) continue;
     
     const stops = await Promise.all(dData.stops.map(async (sid) => {
-      const odStop = await openData.getStopById(sid);
-      if (odStop) return odStop;
-      const fallback = await resolveStop(sid);
-      if (fallback) return { ...fallback, lines: lineIndex.getLinesForStop(sid) };
+      const stop = await resolveStop(sid);
+      if (stop) return { ...stop, lines: lineIndex.getLinesForStop(sid) };
       return { stopId: sid, name: `Parada ${sid}`, lat: null, lng: null, address: null, sentido: null, lines: [], source: 'stops_min' };
     }));
     directions.push({ id: dId, destination: dData.destination, stops });
@@ -74,7 +73,7 @@ export async function getLineRoute(lineId: string, dirFilter: string) {
 }
 
 export async function getLinesIntersect(a: string, b: string) {
-  await lineIndex.buildLineIndex();
+  await lineIndex.ensureLineIndex();
 
   const lineA = lineIndex.getLine(a);
   const lineB = lineIndex.getLine(b);

@@ -108,7 +108,7 @@ router.get('/health', async (_req: Request, res: Response) => {
         },
         legacy_api: {
           status: ok ? 'ok' : 'unavailable',
-          latency_ms: ('latency_ms' in legacy ? (legacy as any).latency_ms : null),
+          latency_ms: 'latency_ms' in legacy ? legacy.latency_ms : null,
         },
       },
       cache: {

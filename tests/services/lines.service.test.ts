@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as linesService from '../../src/services/lines.service';
 import * as lineIndex from '../../src/sources/lineIndex';
-import * as openData from '../../src/sources/openData';
+import * as helpers from '../../src/utils/helpers';
 
 vi.mock('../../src/sources/lineIndex');
-vi.mock('../../src/sources/openData');
+vi.mock('../../src/utils/helpers');
 
 describe('services/lines.service', () => {
   beforeEach(() => {
@@ -25,10 +25,10 @@ describe('services/lines.service', () => {
     });
   });
 
-  describe('getLineDetail', () => {
+  describe('getLine', () => {
     it('should return null if line does not exist', async () => {
       vi.mocked(lineIndex.getLine).mockReturnValue(undefined);
-      const result = await linesService.getLineDetail('99');
+      const result = await linesService.getLine('99');
       expect(result).toBeNull();
     });
 
@@ -38,7 +38,7 @@ describe('services/lines.service', () => {
         destinations: { '1': 'Ida' }, stats: { stops_total: 5 }, has_schedule: true, active: true, directions: {}
       } as any);
 
-      const result = await linesService.getLineDetail('LC');
+      const result = await linesService.getLine('LC');
       expect(result).not.toBeNull();
       expect(result?.schedule_id).toBe('C'); // from toScheduleId util
       expect(result?.stats.stops_total).toBe(5);
@@ -96,7 +96,7 @@ describe('services/lines.service', () => {
         }
       } as any);
 
-      vi.mocked(openData.getStopById).mockImplementation(async (id) => {
+      vi.mocked(helpers.resolveStop).mockImplementation(async (id) => {
         if (id === 100) return { stopId: 100, name: 'Real Stop' } as any;
         return null;
       });

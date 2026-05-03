@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { PORT, VERSION } from './config';
 import * as lineIndex from './sources/lineIndex';
+import { connectRedis } from './sources/cacheDb';
 import { globalLimiter, strictLimiter } from './middleware/rateLimiter';
 import { requestLogger } from './middleware/requestLogger';
 import logger from './utils/logger';
@@ -97,23 +98,37 @@ app.use((_req: Request, res: Response) => {
 app.use(errorHandler);
 
 // ── Startup ─────────────────────────────────────────────────────────
-if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, '0.0.0.0', () => {
-    logger.info({ port: PORT }, `[server] Listening on http://0.0.0.0:${PORT}`);
+
+async function startServer() {
+  // Connect to Redis
+  await connectRedis();
+
+  if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, '0.0.0.0', () => {
+      logger.info({ port: PORT }, `[server] Listening on http://0.0.0.0:${PORT}`);
+    });
+  }
+
+  // Pre-warm caches in background (non-blocking)
+  lineIndex.ensureLineIndex()
+    .then(() => logger.info({ lines: lineIndex.getLines().length }, '[server] Line index ready'))
+    .catch((err: Error) => logger.warn({ err }, '[server] Could not build line index'));
+  
+  // Start background refresh
+  lineIndex.startBackgroundRefresh();
+
+  import('./sources/openData').then((od) => {
+    od.getStops().then((stops) => {
+      logger.info({ stops: stops.length }, '[server] Open Data cache pre-warmed');
+    });
+  }).catch(() => {
+    logger.warn('[server] Could not pre-warm Open Data cache');
   });
 }
 
-// Pre-warm caches in background (non-blocking)
-lineIndex.buildLineIndex()
-  .then(() => logger.info({ lines: lineIndex.getLines().length }, '[server] Line index ready'))
-  .catch((err: Error) => logger.warn({ err }, '[server] Could not build line index'));
-
-import('./sources/openData').then((od) => {
-  od.getStops().then((stops) => {
-    logger.info({ stops: stops.length }, '[server] Open Data cache pre-warmed');
-  });
-}).catch(() => {
-  logger.warn('[server] Could not pre-warm Open Data cache');
+startServer().catch(err => {
+  logger.fatal({ err }, '[crash] Failed to start server');
+  process.exit(1);
 });
 
 export default app;

@@ -84,13 +84,13 @@ describe('services/stops.service', () => {
     });
   });
 
-  describe('getStopDetails', () => {
+  describe('getStop', () => {
     // Cannot mock resolveStop easily because it's imported internally in the service from utils.
     // However we mock openData which resolveStop uses.
     
     it('should return null if stop does not exist', async () => {
       vi.mocked(openData.getStopById).mockResolvedValue(null);
-      const result = await stopsService.getStopDetails(99999);
+      const result = await stopsService.getStop(99999);
       expect(result).toBeNull();
     });
 
@@ -110,7 +110,7 @@ describe('services/stops.service', () => {
         { stopId: 11, name: 'Near', lat: 43.461, lng: -3.801 },
       ] as any);
 
-      const result = await stopsService.getStopDetails(10);
+      const result = await stopsService.getStop(10);
       
       expect(result).not.toBeNull();
       expect(result?.stopId).toBe(10);
@@ -131,12 +131,12 @@ describe('services/stops.service', () => {
         { stopId: 11, name: 'Near', lat: 43.461, lng: -3.801 },
       ] as any);
 
-      await stopsService.getStopDetails(20); // First call populates cache
+      await stopsService.getStop(20); // First call populates cache
       expect(openData.getStops).toHaveBeenCalledTimes(1);
 
       vi.mocked(openData.getStops).mockClear();
 
-      await stopsService.getStopDetails(20); // Second call should hit cache
+      await stopsService.getStop(20); // Second call should hit cache
       expect(openData.getStops).not.toHaveBeenCalled();
     });
   });

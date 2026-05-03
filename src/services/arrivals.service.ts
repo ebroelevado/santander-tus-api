@@ -1,26 +1,17 @@
 import * as legacyApi from '../sources/legacyApi';
 import { CACHE_TTL } from '../config';
-import { Arrival, Stop } from '../types';
+import { Arrival, Stop, ArrivalsResponse } from '../types';
 import { getColor, resolveStop } from '../utils/helpers';
 import { getStops } from '../sources/openData';
+import { parseLegacyArrivals } from '../utils/legacyParser';
+import { getTransient, setTransient } from '../sources/cacheDb';
 import stopsMinData from '../../data/stops.min.json';
 
-// ─── In-memory arrivals cache with periodic cleanup ──────────────────
-const arrivalsCache = new Map<string, { data: any; ts: number }>();
+// In-flight request deduplication
 const inflightRequests = new Map<string, Promise<any>>();
 
-function cleanArrivalsCache(): void {
-  const now = Date.now();
-  const ttl = CACHE_TTL.arrivals;
-  for (const [key, entry] of arrivalsCache) {
-    if (now - entry.ts > ttl) {
-      arrivalsCache.delete(key);
-    }
-  }
-}
-
 function cacheKey(stopId: number, lineFilter?: string): string {
-  return lineFilter ? `${stopId}:${lineFilter.toUpperCase()}` : `${stopId}`;
+  return lineFilter ? `arrivals:${stopId}:${lineFilter.toUpperCase()}` : `arrivals:${stopId}`;
 }
 
 export async function fetchArrivalsForLine(lineId: string, stopId: number) {
@@ -31,16 +22,14 @@ export async function fetchArrivalsForLine(lineId: string, stopId: number) {
   return arrivals.filter((a: any) => a.lineId === lineId);
 }
 
-export async function fetchSmartArrivals(stopId: number, lineFilter?: string, refresh = false) {
+export async function fetchSmartArrivals(stopId: number, lineFilter?: string, refresh = false): Promise<ArrivalsResponse | null> {
   const stop = await resolveStop(stopId);
   if (!stop) return null;
 
   const key = cacheKey(stopId, lineFilter);
   if (!refresh) {
-    const cached = arrivalsCache.get(key);
-    if (cached && Date.now() - cached.ts < CACHE_TTL.arrivals) {
-      return cached.data;
-    }
+    const cached = await getTransient<ArrivalsResponse>(key);
+    if (cached) return cached;
   }
 
   let fetchPromise = inflightRequests.get(key);
@@ -52,27 +41,23 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
   }
 
   const arrivalsRaw = await fetchPromise;
-  if (!arrivalsRaw || 'error' in arrivalsRaw) {
+  if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
     throw new Error('legacy_unavailable');
   }
 
-  const rawData = arrivalsRaw as any[];
-  const arrivalEntries: any[] = Array.isArray(rawData[0]) ? rawData[0] : [];
+  const rawEntries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
+  const parsedArrivals = parseLegacyArrivals(rawEntries);
 
-  const arrivals: Arrival[] = arrivalEntries.map((entry: any[]): Arrival => {
-    const minutesRaw = entry[2] !== undefined ? entry[2] : null;
-    const minutesValid = minutesRaw !== null && minutesRaw >= 0 ? minutesRaw : null;
-    return {
-      line: entry[0],
-      destination: entry[1],
-      color: getColor(entry[0]),
-      minutes: minutesValid,
-      next: entry[3] !== undefined && entry[3] >= 0 ? entry[3] : null,
-      active: minutesValid !== null,
-    };
-  });
+  const arrivals: Arrival[] = parsedArrivals.map((entry) => ({
+    line: entry.line,
+    destination: entry.destination,
+    color: getColor(entry.line),
+    minutes: entry.minutes,
+    next: entry.next,
+    active: entry.active,
+  }));
 
-  const response: any = {
+  const response: ArrivalsResponse = {
     stop: { stopId: stop.stopId, name: stop.name, lat: stop.lat, lng: stop.lng },
     updated: new Date().toISOString(),
     arrivals,
@@ -80,7 +65,7 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
   };
 
   if (lineFilter) {
-    const upcomingNames: string[] = rawData[1] || [];
+    const upcomingNames: string[] = arrivalsRaw[1] || [];
     const allStops = await getStops();
 
     const nameToStop = new Map<string, Stop>();
@@ -89,17 +74,16 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
     }
     
     const stopsMin = stopsMinData as unknown as Record<string, [number, number, number, string]>;
-    for (const [key, val] of Object.entries(stopsMin)) {
+    for (const [sKey, val] of Object.entries(stopsMin)) {
       const upper = val[3].toUpperCase();
       if (!nameToStop.has(upper)) {
         nameToStop.set(upper, {
-          stopId: Number(key),
+          stopId: Number(sKey),
           name: val[3],
           lat: val[1],
           lng: val[2],
-          address: null,
-          sentido: null,
-          lines: [],
+          address: '',
+          sentido: 1,
           source: 'stops_min',
         });
       }
@@ -111,27 +95,27 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
       return { name, stopId: null, lat: 0, lng: 0 };
     });
 
-    for (const arrival of arrivals) {
-      (arrival as any).stops = upcomingStops;
+    for (const arrival of response.arrivals) {
+      // Extended properties are sometimes injected dynamically
+      Object.assign(arrival, { stops: upcomingStops });
     }
 
     response.all_lines = [lineFilter];
   } else {
-    response.all_lines = rawData[1] || [];
+    response.all_lines = arrivalsRaw[1] || [];
   }
 
-  cleanArrivalsCache();
-  arrivalsCache.set(key, { data: response, ts: Date.now() });
+  // TTL in seconds
+  await setTransient(key, response, Math.floor(CACHE_TTL.arrivals / 1000));
 
   return response;
 }
 
 export async function fetchRawArrival(stopId: number, lineLabel?: string) {
   const arrivalsRaw = await legacyApi.getArrivals(stopId, lineLabel);
-  if (!arrivalsRaw || 'error' in arrivalsRaw) {
+  if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
     throw new Error('legacy_unavailable');
   }
 
-  const rawData = arrivalsRaw as any[];
-  return Array.isArray(rawData[0]) ? rawData[0] : [];
+  return Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
 }

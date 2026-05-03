@@ -12,11 +12,11 @@ import fetch from 'node-fetch';
 import { LEGACY_API_BASE, DISCOVERY_STOP_ID, CACHE_TTL } from '../config';
 import { LineInfo } from '../types';
 import { toScheduleId, lineName, getTextColor } from '../utils/lineMapping';
-import { rgbToHex, getColor } from '../utils/helpers';
+import { getColor } from '../utils/helpers';
 import logger from '../utils/logger';
+import * as cacheDb from './cacheDb';
 
 // ── Static data ────────────────────────────────────────────────────
-import colorsRaw from '../../data/colors.json';
 import schedulesRaw from '../../data/schedules.json';
 import stopsMinRaw from '../../data/stops.min.json';
 
@@ -32,75 +32,69 @@ interface RouteStopEntry {
 function hasSchedule(lineId: string): boolean {
   const scheduleId = toScheduleId(lineId);
   if (!scheduleId) return false;
-  const schedules = (schedulesRaw as any).horarios_hardcoded || {};
+  const schedulesRawTyped = schedulesRaw as { horarios_hardcoded?: Record<string, unknown> };
+  const schedules = schedulesRawTyped.horarios_hardcoded || {};
   return `${scheduleId}-1` in schedules || `${scheduleId}-2` in schedules;
 }
 
 // ── Legacy API calls ───────────────────────────────────────────────
 
-/**
- * Fetch all line labels currently active at the discovery stop.
- * POST /api/v1/estimations/get-compact {stopId}
- * Response: [[arrivals...], [label1, label2, ...]]
- */
+import { throttledFetch } from '../utils/upstreamThrottle';
+
 async function fetchAllLineLabels(stopId: number): Promise<string[]> {
-  const url = `${LEGACY_API_BASE}/api/v1/estimations/get-compact`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stopId }),
+  return throttledFetch(async () => {
+    const url = `${LEGACY_API_BASE}/api/v1/estimations/get-compact`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stopId }),
+    });
+    if (!res.ok) throw new Error(`Legacy API /estimations/get-compact error: ${res.status}`);
+    const data = (await res.json()) as [unknown, string[]];
+    return data[1] || [];
   });
-  if (!res.ok) throw new Error(`Legacy API /estimations/get-compact error: ${res.status}`);
-  const data = (await res.json()) as any[];
-  return data[1] || [];
 }
 
-/**
- * Fetch the route (ordered list of stops) for a given line from a given stop.
- * POST /api/v1/routes/get-compact {stopId, lineLabel}
- * Response: [[stopId, stopName, [lines...]], ...] or [] if stopId not on line.
- */
 async function fetchRoute(stopId: number, line: string): Promise<RouteStopEntry[]> {
-  const url = `${LEGACY_API_BASE}/api/v1/routes/get-compact`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stopId, lineLabel: line }),
+  return throttledFetch(async () => {
+    const url = `${LEGACY_API_BASE}/api/v1/routes/get-compact`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stopId, lineLabel: line }),
+    });
+    if (!res.ok) throw new Error(`Legacy API /routes/get-compact error: ${res.status}`);
+    const data = (await res.json()) as Array<[number, string, string[]]>;
+    if (!Array.isArray(data) || data.length === 0) return [];
+    return data.map(
+      (entry): RouteStopEntry => ({
+        stopId: entry[0],
+        name: entry[1],
+        lines: entry[2],
+      }),
+    );
   });
-  if (!res.ok) throw new Error(`Legacy API /routes/get-compact error: ${res.status}`);
-  const data = (await res.json()) as any[];
-  if (!Array.isArray(data) || data.length === 0) return [];
-  return data.map(
-    (entry: any[]): RouteStopEntry => ({
-      stopId: entry[0] as number,
-      name: entry[1] as string,
-      lines: entry[2] as string[],
-    }),
-  );
 }
 
-// ── In-memory cache ────────────────────────────────────────────────
+// ── In-memory cache (L1) ───────────────────────────────────────────
 
 let linesCache: Map<string, LineInfo> | null = null;
 let lastBuilt: number = 0;
+
+// Used to prevent concurrent rebuilds
+let isBuilding = false;
 let buildPromise: Promise<void> | null = null;
+let refreshInterval: NodeJS.Timeout | null = null;
 
 // ── Precomputed indices ────────────────────────────────────────────
 
-/** stopId → Set of lineIds that pass through it */
 let stopToLinesMap: Map<number, Set<string>> = new Map();
-
-/** stopId → Map<lineId, Array<{dir: string, position: number}>> */
 let stopPositionIndex: Map<number, Map<string, Array<{ dir: string; position: number }>>> = new Map();
-
-/** "lineA|lineB" (alphabetically sorted) → array of common stopIds */
 let lineIntersectionIndex: Map<string, number[]> = new Map();
-
-/** lineId → Map<direction → Map<stopId → position>> for O(1) getLinePositionMap */
 let linePositionMaps: Map<string, Map<string, Map<number, number>>> = new Map();
 
-/** stopId → name (populated from openData async + stops.min.json sync fallback) */
 export const stopNameCache: Map<number, string> = new Map();
+export const stopCoordsCache: Map<number, { lat: number; lng: number }> = new Map();
 
 function isCacheValid(): boolean {
   return linesCache !== null && Date.now() - lastBuilt < CACHE_TTL.lines;
@@ -108,12 +102,8 @@ function isCacheValid(): boolean {
 
 // ── Index builders ─────────────────────────────────────────────────
 
-/**
- * Build StopToLinesMap: stopId → Set<lineId>
- */
 function buildStopToLinesMap(catalog: Map<string, LineInfo>): Map<number, Set<string>> {
   const map = new Map<number, Set<string>>();
-
   for (const [lineId, line] of catalog) {
     for (const dir of Object.values(line.directions)) {
       for (const stopId of dir.stops) {
@@ -126,50 +116,34 @@ function buildStopToLinesMap(catalog: Map<string, LineInfo>): Map<number, Set<st
       }
     }
   }
-
   return map;
 }
 
-/**
- * Build StopPositionIndex: stopId → Map<lineId, Array<{dir, position}>>
- * For each line, for each direction, for each stop at index i, record {dir, position: i}
- */
 function buildStopPositionIndex(catalog: Map<string, LineInfo>): Map<number, Map<string, Array<{ dir: string; position: number }>>> {
   const index = new Map<number, Map<string, Array<{ dir: string; position: number }>>>();
-
   for (const [lineId, line] of catalog) {
     for (const [dir, direction] of Object.entries(line.directions)) {
       for (let i = 0; i < direction.stops.length; i++) {
         const stopId = direction.stops[i];
-
         let lineMap = index.get(stopId);
         if (!lineMap) {
           lineMap = new Map();
           index.set(stopId, lineMap);
         }
-
         let positions = lineMap.get(lineId);
         if (!positions) {
           positions = [];
           lineMap.set(lineId, positions);
         }
-
         positions.push({ dir, position: i });
       }
     }
   }
-
   return index;
 }
 
-/**
- * Build LineIntersectionIndex: "lineA|lineB" (sorted) → common stopIds[]
- * Used by the trip planner to avoid rebuilding Sets on every query.
- */
 function buildLineIntersectionIndex(catalog: Map<string, LineInfo>): Map<string, number[]> {
   const lineStopSets = new Map<string, Set<number>>();
-
-  // Build per-line stop sets
   for (const [lineId, line] of catalog) {
     const stopSet = new Set<number>();
     for (const dir of Object.values(line.directions)) {
@@ -186,37 +160,24 @@ function buildLineIntersectionIndex(catalog: Map<string, LineInfo>): Map<string,
   for (let i = 0; i < lineIds.length; i++) {
     const lineA = lineIds[i];
     const setA = lineStopSets.get(lineA)!;
-
     for (let j = i + 1; j < lineIds.length; j++) {
       const lineB = lineIds[j];
       const setB = lineStopSets.get(lineB)!;
-
       const common: number[] = [];
       for (const stopId of setA) {
-        if (setB.has(stopId)) {
-          common.push(stopId);
-        }
+        if (setB.has(stopId)) common.push(stopId);
       }
-
       if (common.length > 0) {
-        // Key is alphabetically sorted to normalize order
         const sorted = [lineA, lineB].sort();
-        const key = `${sorted[0]}|${sorted[1]}`;
-        intersections.set(key, common);
+        intersections.set(`${sorted[0]}|${sorted[1]}`, common);
       }
     }
   }
-
   return intersections;
 }
 
-/**
- * Build LinePositionMaps: lineId → Map<direction, Map<stopId, position>>
- * Precomputes the O(1) lookup maps for getLinePositionMap().
- */
 function buildLinePositionMaps(catalog: Map<string, LineInfo>): Map<string, Map<string, Map<number, number>>> {
   const maps = new Map<string, Map<string, Map<number, number>>>();
-
   for (const [lineId, line] of catalog) {
     const dirMaps = new Map<string, Map<number, number>>();
     for (const [dir, direction] of Object.entries(line.directions)) {
@@ -226,106 +187,77 @@ function buildLinePositionMaps(catalog: Map<string, LineInfo>): Map<string, Map<
     }
     maps.set(lineId, dirMaps);
   }
-
   return maps;
 }
 
-/**
- * Detect circular lines.
- * A line is circular if:
- *   - In a single direction, the first stop equals the last stop, OR
- *   - directions[1].stops and directions[2].stops share >80% of stops
- */
 function detectCircular(line: LineInfo): boolean {
   const dirs = Object.entries(line.directions);
-
-  // Check: first stop equals last stop within the same direction
   for (const [, direction] of dirs) {
     const stops = direction.stops;
-    if (stops.length >= 2 && stops[0] === stops[stops.length - 1]) {
-      return true;
-    }
+    if (stops.length >= 2 && stops[0] === stops[stops.length - 1]) return true;
   }
-
-  // Check: directions share >80% of stops
   if (dirs.length >= 2) {
     const setA = new Set(dirs[0][1].stops);
     const setB = new Set(dirs[1][1].stops);
-
     if (setA.size === 0 || setB.size === 0) return false;
-
     let shared = 0;
     for (const s of setA) {
       if (setB.has(s)) shared++;
     }
-
     const overlapRatio = shared / Math.max(setA.size, setB.size);
     if (overlapRatio > 0.8) return true;
   }
-
   return false;
 }
 
-/**
- * Populate StopNameCache.
- * First pass: sync, from stops.min.json (fast, always available).
- * Second pass: async, from openData to override/complete names.
- */
-function populateStopNameCacheSync(): void {
+function populateStopNameAndCoordsSync(): void {
   const raw = stopsMinRaw as Record<string, any[]>;
   for (const [key, value] of Object.entries(raw)) {
     const stopId = parseInt(key, 10);
     if (isNaN(stopId)) continue;
+    const lat = value[1] as number;
+    const lng = value[2] as number;
     const name = value[3] as string | undefined;
-    if (name) {
-      stopNameCache.set(stopId, name);
-    }
+    if (name) stopNameCache.set(stopId, name);
+    if (lat && lng) stopCoordsCache.set(stopId, { lat, lng });
   }
 }
 
-async function populateStopNameCacheAsync(): Promise<void> {
+async function populateStopNameAndCoordsAsync(): Promise<void> {
   try {
-    // Dynamic import to avoid circular dependency at module level
     const { getStops } = await import('./openData');
     const stops = await getStops();
     for (const stop of stops) {
-      if (stop.name) {
-        stopNameCache.set(stop.stopId, stop.name);
-      }
+      if (stop.name) stopNameCache.set(stop.stopId, stop.name);
+      stopCoordsCache.set(stop.stopId, { lat: stop.lat, lng: stop.lng });
     }
-    logger.info({ count: stops.length }, '[lineIndex] Stop name cache updated');
+    logger.info({ count: stops.length }, '[lineIndex] Stop names & coords updated from openData');
   } catch (err) {
-    logger.warn({ err }, '[lineIndex] Could not load openData stops for name cache');
+    logger.warn({ err }, '[lineIndex] Could not load openData stops for coords cache');
   }
 }
 
 // ── Builder ────────────────────────────────────────────────────────
 
 /**
- * Build (or refresh) the complete line catalog.
- * Safe to call multiple times — no-op if cache is still fresh.
- * Uses buildPromise guard to prevent concurrent builds (race condition).
+ * Rebuild the line catalog from the Legacy API and save to Redis.
  */
-export async function buildLineIndex(): Promise<void> {
-  if (isCacheValid()) return;
-
-  // If a build is already in progress, wait for it instead of starting a new one
-  if (buildPromise) return buildPromise;
-
-  buildPromise = (async () => {
-    console.log('[lineIndex] Building line catalog...');
+async function performLineIndexBuild(): Promise<void> {
+  if (isBuilding) return;
+  isBuilding = true;
+  
+  try {
+    logger.info('[lineIndex] Building line catalog from Legacy API...');
     const allLineLabels = await fetchAllLineLabels(DISCOVERY_STOP_ID);
-    console.log(`[lineIndex] Discovered ${allLineLabels.length} active line(s): ${allLineLabels.join(', ')}`);
+    logger.info(`[lineIndex] Discovered ${allLineLabels.length} active line(s): ${allLineLabels.join(', ')}`);
 
     const newCache = new Map<string, LineInfo>();
 
     for (const lineId of allLineLabels) {
       try {
-        // ── Direction 1: route from the discovery stop ──────────────
         const dir1Stops = await fetchRoute(DISCOVERY_STOP_ID, lineId);
-
-        // ── Direction 2: route from the last stop of direction 1 ───
         let dir2Stops: RouteStopEntry[] = [];
+        
         if (dir1Stops.length > 0) {
           const lastStopId = dir1Stops[dir1Stops.length - 1].stopId;
           if (lastStopId !== DISCOVERY_STOP_ID) {
@@ -333,26 +265,19 @@ export async function buildLineIndex(): Promise<void> {
           }
         }
 
-        // ── Build destinations and directions maps ─────────────────
         const destinations: { [dir: string]: string } = {};
         const directions: { [dir: string]: { destination: string; stops: number[] } } = {};
 
         if (dir1Stops.length > 0) {
           const dest = dir1Stops[dir1Stops.length - 1].name;
           destinations['1'] = dest;
-          directions['1'] = {
-            destination: dest,
-            stops: dir1Stops.map((s) => s.stopId),
-          };
+          directions['1'] = { destination: dest, stops: dir1Stops.map((s) => s.stopId) };
         }
 
         if (dir2Stops.length > 0) {
           const dest = dir2Stops[dir2Stops.length - 1].name;
           destinations['2'] = dest;
-          directions['2'] = {
-            destination: dest,
-            stops: dir2Stops.map((s) => s.stopId),
-          };
+          directions['2'] = { destination: dest, stops: dir2Stops.map((s) => s.stopId) };
         }
 
         const stopsDir1 = directions['1']?.stops.length || 0;
@@ -374,42 +299,99 @@ export async function buildLineIndex(): Promise<void> {
           },
           has_schedule: hasSchedule(lineId),
           active: true,
-          is_circular: false, // will be set after catalog is built
+          is_circular: false,
         };
 
         newCache.set(lineId, lineInfo);
-        console.log(`[lineIndex]   ${lineId}: dir1=${stopsDir1} stops → "${destinations['1'] || '?'}", dir2=${stopsDir2} stops → "${destinations['2'] || '?'}"`);
+        logger.debug(`[lineIndex]   ${lineId}: dir1=${stopsDir1} stops, dir2=${stopsDir2} stops`);
       } catch (err) {
-        console.error(`[lineIndex] Failed to build route for line "${lineId}":`, err);
+        logger.error({ err, lineId }, `[lineIndex] Failed to build route for line`);
       }
     }
 
-    linesCache = newCache;
-
-    // ── Circular detection: update is_circular on each line ────────
     for (const line of newCache.values()) {
       line.is_circular = detectCircular(line);
     }
 
-    // ── Build precomputed indices ──────────────────────────────────
+    // Assign to RAM L1
+    linesCache = newCache;
     stopToLinesMap = buildStopToLinesMap(newCache);
     stopPositionIndex = buildStopPositionIndex(newCache);
     lineIntersectionIndex = buildLineIntersectionIndex(newCache);
     linePositionMaps = buildLinePositionMaps(newCache);
 
-    // ── Populate stop name cache (sync fallback now, async later) ─
     if (stopNameCache.size === 0) {
-      populateStopNameCacheSync();
+      populateStopNameAndCoordsSync();
     }
 
-    lastBuilt = Date.now();
-    console.log(`[lineIndex] Catalog ready: ${newCache.size} lines cached (TTL: ${CACHE_TTL.lines}ms)`);
-    console.log(`[lineIndex] Indices built: StopToLinesMap=${stopToLinesMap.size} stops, IntersectionIndex=${lineIntersectionIndex.size} pairs`);
+    // Build the transit graph for the Trip Planner
+    const { buildGraph } = await import('../services/transitGraph');
+    buildGraph(newCache);
 
-    // ── Fire-and-forget: update stop name cache from openData ─────
-    populateStopNameCacheAsync().catch((err) => {
-      logger.warn('[lineIndex] Background stop name cache update failed:', err);
+    lastBuilt = Date.now();
+    
+    logger.info(`[lineIndex] Catalog rebuilt: ${newCache.size} lines.`);
+    
+    // Persist to Redis (L2)
+    try {
+      await cacheDb.setLineCatalog(newCache);
+      await cacheDb.setIndices(stopToLinesMap, lineIntersectionIndex, linePositionMaps);
+      await cacheDb.setMetadata('last_line_build', lastBuilt.toString());
+      logger.info('[lineIndex] Persisted catalog and indices to Redis.');
+    } catch (err) {
+      logger.warn({ err }, '[lineIndex] Failed to persist to Redis');
+    }
+
+    // Async tasks
+    populateStopNameAndCoordsAsync().catch((err) => {
+      logger.warn({ err }, '[lineIndex] Background coords cache update failed');
     });
+
+  } finally {
+    isBuilding = false;
+  }
+}
+
+/**
+ * Fast check. Used in HTTP requests. Returns immediately if data is in RAM or Redis.
+ * Only blocks on a full cold start.
+ */
+export async function ensureLineIndex(): Promise<void> {
+  // L1: RAM Cache
+  if (linesCache && linesCache.size > 0) return;
+
+  // Wait if it's already building from a cold start
+  if (buildPromise) {
+    await buildPromise;
+    return;
+  }
+
+  buildPromise = (async () => {
+    // L2: Redis Cache
+    const redisLines = await cacheDb.getLineCatalog();
+    const redisIndices = await cacheDb.getIndices();
+    const redisLastBuilt = await cacheDb.getMetadata('last_line_build');
+
+    if (redisLines && redisIndices && redisLastBuilt) {
+      linesCache = redisLines;
+      stopToLinesMap = redisIndices.stopToLines;
+      lineIntersectionIndex = redisIndices.intersections;
+      linePositionMaps = redisIndices.positions;
+      // We must reconstruct stopPositionIndex because we didn't serialize it explicitly
+      // (it can be derived quickly from linesCache)
+      stopPositionIndex = buildStopPositionIndex(redisLines);
+      lastBuilt = parseInt(redisLastBuilt, 10);
+      
+      populateStopNameAndCoordsSync();
+      populateStopNameAndCoordsAsync().catch(() => {});
+      
+      logger.info('[lineIndex] Loaded catalog from Redis successfully.');
+      return;
+    }
+
+    // L3: Cold Start (Fetch from Legacy API)
+    logger.warn('[lineIndex] Cache miss in RAM and Redis. Performing cold start build...');
+    await performLineIndexBuild();
   })();
 
   try {
@@ -419,7 +401,22 @@ export async function buildLineIndex(): Promise<void> {
   }
 }
 
+/**
+ * Starts a background interval to refresh the catalog every 24h.
+ * This runs silently and doesn't block incoming requests.
+ */
+export function startBackgroundRefresh(): void {
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(() => {
+    logger.info('[lineIndex] Triggering background catalog refresh...');
+    performLineIndexBuild().catch(err => {
+      logger.error({ err }, '[lineIndex] Background refresh failed');
+    });
+  }, CACHE_TTL.lines);
+}
+
 // ── Public accessors ───────────────────────────────────────────────
+// Note: all accessors are synchronous and assume ensureLineIndex() was called by the route layer.
 
 /** Return all cached lines (empty array if catalog hasn't been built yet). */
 export function getLines(): LineInfo[] {

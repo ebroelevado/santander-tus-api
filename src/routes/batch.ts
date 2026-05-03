@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getArrivals } from '../sources/legacyApi';
-import { getLine, buildLineIndex } from '../sources/lineIndex';
+import { getLine, ensureLineIndex } from '../sources/lineIndex';
+import { parseLegacyArrivals } from '../utils/legacyParser';
 import { BATCH_CONCURRENCY } from '../config';
 import { Arrival } from '../types';
 import { resolveStop } from '../utils/helpers';
@@ -67,15 +68,16 @@ router.post('/arrivals', async (req: Request, res: Response) => {
           }
         }
 
-        const rawData = arrivalsRaw as any[];
-        const arrivalEntries: any[] = Array.isArray(rawData[0]) ? rawData[0] : [];
-        const allLineLabels = rawData[1] || [];
+        const rawEntries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
+        const allLineLabels: string[] = arrivalsRaw[1] || [];
 
-        const arrivals: Arrival[] = arrivalEntries.map((entry: any[]) => ({
-          line: entry[0],
-          destination: entry[1],
-          minutes: entry[2] !== undefined ? entry[2] : null,
-          next: entry[3] !== undefined ? entry[3] : null,
+        const parsedArrivals = parseLegacyArrivals(rawEntries);
+
+        const arrivals: Arrival[] = parsedArrivals.map((entry: any) => ({
+          line: entry.line,
+          destination: entry.destination,
+          minutes: entry.minutes,
+          next: entry.next,
           color: '',
           active: true,
         }));
@@ -154,7 +156,7 @@ router.post('/lines', async (req: Request, res: Response) => {
       });
     }
 
-    await buildLineIndex();
+    await ensureLineIndex();
 
     const results = lines.map((lineId: string) => {
       const info = getLine(lineId);

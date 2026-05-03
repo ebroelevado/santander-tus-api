@@ -30,7 +30,7 @@ export async function listOrSearchStops(req: Request, res: Response) {
 export async function getStopDetail(req: Request, res: Response) {
   const stopId = req.params.stop as unknown as number;
 
-  const details = await stopsService.getStopDetails(stopId);
+  const details = await stopsService.getStop(stopId);
   if (!details) {
     throw new ApiError(404, 'STOP_NOT_FOUND', `La parada ${stopId} no existe`, { source: 'open_data' });
   }

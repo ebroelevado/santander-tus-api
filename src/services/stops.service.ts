@@ -54,11 +54,12 @@ export async function searchStops(q: string | undefined, offset: number, limit: 
   return { paged, total: results.length };
 }
 
-export async function getStopDetails(stopId: number) {
+export async function getStop(stopId: number) {
+  await lineIndex.ensureLineIndex();
   const stop = await resolveStop(stopId);
   if (!stop) return null;
 
-  await lineIndex.buildLineIndex();
+
   const lines = lineIndex.getLinesForStop(stopId);
   const allLines = lineIndex.getLines().filter(l => lines.includes(l.id));
 

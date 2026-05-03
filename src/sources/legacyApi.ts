@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { LEGACY_API_BASE } from '../config';
+import { throttledFetch } from '../utils/upstreamThrottle';
 
 const TIMEOUT_MS = 5000;
 
@@ -28,28 +29,31 @@ function unavailable(): LegacyUnavailable {
 // ─── Internal POST helper ───────────────────────────────────────────
 
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T | LegacyUnavailable> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  return throttledFetch(async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-  try {
-    const res = await fetch(`${LEGACY_API_BASE}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal as any, // node-fetch v2 typing quirk
-    });
+    try {
+      const res = await fetch(`${LEGACY_API_BASE}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        // @ts-expect-error node-fetch v2 typing quirk
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
+      if (!res.ok) {
+        return unavailable();
+      }
+
+      const json: T = await res.json();
+      return json;
+    } catch (_err) {
       return unavailable();
+    } finally {
+      clearTimeout(timer);
     }
-
-    const json: T = await res.json();
-    return json;
-  } catch (_err) {
-    return unavailable();
-  } finally {
-    clearTimeout(timer);
-  }
+  });
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -106,7 +110,8 @@ export async function getHealth(): Promise<
   try {
     const res = await fetch(`${LEGACY_API_BASE}/health`, {
       method: 'GET',
-      signal: controller.signal as any,
+      // @ts-expect-error node-fetch v2 typing quirk
+      signal: controller.signal,
     });
 
     if (!res.ok) {

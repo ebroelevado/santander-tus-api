@@ -88,17 +88,17 @@ describe('controllers/stops.controller', () => {
   describe('getStopDetail', () => {
     it('should return stop detail if found', async () => {
       mockReq = { params: { stop: '10' } };
-      vi.mocked(stopsService.getStopDetails).mockResolvedValue({ stopId: 10, name: 'S10' } as any);
+      vi.mocked(stopsService.getStop).mockResolvedValue({ stopId: 10, name: 'S10' } as any);
 
       await stopsController.getStopDetail(mockReq as Request, mockRes as Response);
 
-      expect(stopsService.getStopDetails).toHaveBeenCalledWith('10');
+      expect(stopsService.getStop).toHaveBeenCalledWith('10');
       expect(resJson).toHaveBeenCalledWith({ stopId: 10, name: 'S10' });
     });
 
     it('should throw ApiError(404) if not found', async () => {
       mockReq = { params: { stop: '99' } };
-      vi.mocked(stopsService.getStopDetails).mockResolvedValue(null);
+      vi.mocked(stopsService.getStop).mockResolvedValue(null);
 
       await expect(stopsController.getStopDetail(mockReq as Request, mockRes as Response))
         .rejects.toThrow(ApiError);

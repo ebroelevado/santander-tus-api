@@ -10,7 +10,19 @@ export const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 export const VERSION = '3.0.0';
 export const DISCOVERY_STOP_ID = 41;
 export const NEARBY_RADIUS = 300;
-export const BATCH_CONCURRENCY = 5;
+export const BATCH_CONCURRENCY = 3;
+export const MAX_BATCH_SIZE = 20;
+
+// ── Redis ──────────────────────────────────────────────────────────
+export const REDIS_URL = process.env.REDIS_URL || 'redis://default:x2pvyIpNGMScCqfWdWyO@158.179.210.240:6384';
+
+// ── Upstream throttle ──────────────────────────────────────────────
+export const MAX_UPSTREAM_CONCURRENT = 3;
+export const UPSTREAM_MIN_DELAY_MS = 100;
+
+// ── Trip planner ───────────────────────────────────────────────────
+export const TRANSFER_PENALTY_MIN = 5;
+export const BUS_SPEED_KMH = 18;
 
 export const CACHE_TTL = {
   stops: 60 * 60 * 1000,

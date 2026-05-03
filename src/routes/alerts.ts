@@ -3,6 +3,7 @@ import * as lineIndex from '../sources/lineIndex';
 import * as legacyApi from '../sources/legacyApi';
 import { toScheduleId, getDayType } from '../utils/lineMapping';
 import { timeToMinutes, currentTimeStr, loadSchedules } from '../utils/helpers';
+import { parseLegacyArrivals } from '../utils/legacyParser';
 
 const router = Router();
 
@@ -46,7 +47,7 @@ router.get('/lines/:line/status', async (req: Request, res: Response) => {
   const lineId = req.params.line as string;
 
   try {
-    await lineIndex.buildLineIndex();
+    await lineIndex.ensureLineIndex();
     const info = lineIndex.getLine(lineId);
 
     if (!info) {
@@ -74,14 +75,14 @@ router.get('/lines/:line/status', async (req: Request, res: Response) => {
       const checkStop = dir1Stops[0];
       const arrivalsRaw = await legacyApi.getArrivals(checkStop);
 
-      if (!arrivalsRaw || 'error' in arrivalsRaw) {
+      if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
         isActive = info.active;
       } else {
-        const rawData = arrivalsRaw as any[];
-        const entries = rawData[0] || [];
-        const lineArrivals = entries.filter((e: any[]) => e[0] === lineId);
-        if (lineArrivals.length > 0 && lineArrivals[0][2] !== undefined) {
-          lastKnownBusMinutesAgo = lineArrivals[0][2];
+        const rawEntries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
+        const parsedArrivals = parseLegacyArrivals(rawEntries);
+        const lineArrivals = parsedArrivals.filter((e: any) => e.line === lineId);
+        if (lineArrivals.length > 0 && lineArrivals[0].minutes !== null) {
+          lastKnownBusMinutesAgo = lineArrivals[0].minutes;
           isActive = true;
         } else {
           isActive = false;
@@ -123,7 +124,7 @@ router.get('/lines/:line/status', async (req: Request, res: Response) => {
       active: isActive,
       frequency_min: 15,
       has_alerts: false,
-      alerts: [] as any[],
+      alerts: [] as never[],
       last_known_bus_minutes_ago: lastKnownBusMinutesAgo,
       schedule: {
         status: scheduleStatus,

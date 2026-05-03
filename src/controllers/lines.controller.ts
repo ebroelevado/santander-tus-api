@@ -20,7 +20,7 @@ export async function getLines(_req: Request, res: Response) {
 
 export async function getLineDetail(req: Request, res: Response) {
   try {
-    const detail = await linesService.getLineDetail(req.params.line as string);
+    const detail = await linesService.getLine(req.params.line as string);
     if (!detail) {
       return res.status(404).json({ error: 'line_not_found', message: `La línea '${req.params.line}' no existe` });
     }

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { buildLineIndex, getStopName } from '../sources/lineIndex';
+import { ensureLineIndex, getStopName } from '../sources/lineIndex';
 import { resolveStop } from '../utils/helpers';
 import * as tripService from '../services/trip.service';
 import { ApiError } from '../utils/ApiError';
@@ -12,14 +12,14 @@ export async function planTrip(req: Request, res: Response) {
     return res.status(200).json({ from: { stopId: fromId, name: getStopName(fromId) || 'Unknown' }, to: { stopId: toId, name: getStopName(toId) || 'Unknown' }, options: [], summary: { total_options: 0, direct_count: 0, transfer_count: 0, best_duration_min: null, message: 'Origin and destination are the same' } });
   }
 
-  await buildLineIndex();
+  await ensureLineIndex();
   const fromStop = await resolveStop(fromId);
   const toStop = await resolveStop(toId);
 
   if (!fromStop) throw new ApiError(404, 'STOP_NOT_FOUND', `Origin stop ${fromId} not found`, { source: 'cache' });
   if (!toStop) throw new ApiError(404, 'STOP_NOT_FOUND', `Destination stop ${toId} not found`, { source: 'cache' });
 
-  const allOptions = tripService.buildTripOptions(fromId, toId);
+  const allOptions = await tripService.buildTripOptions(fromId, toId);
   const topOptions = allOptions.slice(0, 10);
 
   if (topOptions.length === 0) {
@@ -41,7 +41,7 @@ export async function planTrip(req: Request, res: Response) {
 export async function getConnections(req: Request, res: Response) {
   const stopId = req.params.stop as unknown as number;
 
-  await buildLineIndex();
+  await ensureLineIndex();
   const originStop = await resolveStop(stopId);
   if (!originStop) {
     throw new ApiError(404, 'STOP_NOT_FOUND', `Stop ${stopId} not found`, { source: 'cache' });

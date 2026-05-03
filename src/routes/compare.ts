@@ -31,7 +31,7 @@ async function handleCompareLines(req: Request, res: Response) {
       });
     }
 
-    await lineIndex.buildLineIndex();
+    await lineIndex.ensureLineIndex();
 
     // Validate all lines exist — 404 if any is missing
     const missingLines: string[] = [];

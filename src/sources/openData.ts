@@ -3,6 +3,7 @@ import { Stop } from '../types';
 import { OPEN_DATA_URL, CACHE_TTL } from '../config';
 import logger from '../utils/logger';
 import Fuse from 'fuse.js';
+import * as cacheDb from './cacheDb';
 
 // ─── In-memory cache ───────────────────────────────────────────────
 
@@ -40,6 +41,17 @@ async function fetchAllStops(): Promise<Stop[]> {
   if (fetchPromise) return fetchPromise;
 
   fetchPromise = (async () => {
+    // Try Redis (L2) if L1 is empty
+    if (cache.size === 0) {
+      const redisStops = await cacheDb.getStops();
+      if (redisStops.length > 0) {
+        redisStops.forEach((stop) => cache.set(stop.stopId, stop));
+        lastFetch = now;
+        logger.info({ count: redisStops.length }, '[openData] Loaded stops from Redis L2 cache');
+        return redisStops;
+      }
+    }
+
     try {
       const res = await fetch(OPEN_DATA_URL);
       if (!res.ok) {
@@ -83,7 +95,14 @@ async function fetchAllStops(): Promise<Stop[]> {
 
       lastFetch = now;
       logger.info({ count: cache.size }, '[openData] Stops loaded');
-      return Array.from(cache.values());
+
+      // Update Redis Cache (L2)
+      const stopsArray = Array.from(newCache.values());
+      cacheDb.setStops(stopsArray).catch((err) => {
+        logger.warn({ err }, '[openData] Failed to save stops to Redis');
+      });
+
+      return stopsArray;
     } catch (err) {
       logger.error({ err }, '[openData] Fetch error');
       return Array.from(cache.values());
