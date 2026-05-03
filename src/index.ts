@@ -17,7 +17,7 @@ process.on('uncaughtException', (err) => {
 });
 
 // ── Route imports ───────────────────────────────────────────────────
-import { apiReference } from '@scalar/express-api-reference';
+
 import { swaggerSpec } from './swagger';
 import healthRouter from './routes/health';
 import discoverRouter from './routes/discover';
@@ -43,14 +43,22 @@ app.use(requestLogger);
 
 // ── Mount routers ───────────────────────────────────────────────────
 // Swagger/OpenAPI docs via Scalar
-app.use('/api/v1/docs', apiReference({
-  spec: {
-    content: swaggerSpec,
-  },
-  theme: 'purple',
-  layout: 'modern',
-  hideDownloadButton: true,
-}));
+app.use('/api/v1/docs', async (req, res, next) => {
+  try {
+    const { apiReference } = await import('@scalar/express-api-reference');
+    const handler = apiReference({
+      spec: {
+        content: swaggerSpec,
+      },
+      theme: 'purple',
+      layout: 'modern',
+      hideDownloadButton: true,
+    });
+    handler(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
 app.use('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 
 // Order matters: more specific paths should come before generic ones
