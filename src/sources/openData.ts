@@ -61,8 +61,8 @@ async function fetchAllStops(): Promise<Stop[]> {
         const stop: Stop = {
           stopId,
           name: r['ayto:parada'] ?? '',
-          lat: r['wgs84_pos:lat'],
-          lng: r['wgs84_pos:long'],
+          lat: Number(r['wgs84_pos:lat']),
+          lng: Number(r['wgs84_pos:long']),
           address: r['vivo:address1'] ?? null,
           sentido: r['ayto:sentido'] ?? null,
           lines: [],

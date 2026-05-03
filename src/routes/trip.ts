@@ -32,7 +32,7 @@ async function resolveStop(stopId: number): Promise<Stop | null> {
 // ─── GET /api/v1/trip?from=X&to=Y ──────────────────────────────────
 // Find direct/transfer routes by intersecting line stops arrays
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/trip', async (req: Request, res: Response) => {
   try {
     const fromId = parseInt(req.query.from as string, 10);
     const toId = parseInt(req.query.to as string, 10);

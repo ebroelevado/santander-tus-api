@@ -42,7 +42,7 @@ app.use('/api/v1', linesRouter);          // GET /api/v1/lines, /lines/:line, /l
 app.use('/api/v1', arrivalsRouter);       // GET /api/v1/stops/:stop/arrivals, /next, /next/:line, /arrivals/:line, /lines/:line/next-at/:stop
 app.use('/api/v1', stopsRouter);          // GET /api/v1/stops, /stops/:stop
 app.use('/api/v1/map', mapRouter);        // GET /api/v1/map/stops, /map/lines, /map/lines/:line
-app.use('/api/v1', tripRouter);           // GET /api/v1/trip, /stops/:stop/connections
+app.use('/api/v1', tripRouter);           // GET /api/v1/trip?from=&to=, /stops/:stop/connections
 app.use('/api/v1/batch', batchRouter);    // POST /api/v1/batch/arrivals, /batch/stops, /batch/lines
 app.use('/api/v1/compare', compareRouter); // POST /api/v1/compare/lines
 app.use('/api/v1', timeRouter);           // GET /api/v1/now, /stops/:stop/etd, /stops/:stop/arrivals/absolute
@@ -73,34 +73,21 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 // ── Startup ─────────────────────────────────────────────────────────
-async function start() {
-  console.log(`[server] Transit API Wrapper v${VERSION} starting...`);
+app.listen(PORT, () => {
+  console.log(`[server] Listening on http://localhost:${PORT}`);
+});
 
-  // Pre-warm: build line index before accepting traffic
-  try {
-    await lineIndex.buildLineIndex();
-    console.log(`[server] Line index ready: ${lineIndex.getLines().length} lines`);
-  } catch (err) {
-    console.warn('[server] Could not build line index at startup — will retry on demand:', err);
-  }
+// Pre-warm caches in background (non-blocking)
+lineIndex.buildLineIndex()
+  .then(() => console.log(`[server] Line index ready: ${lineIndex.getLines().length} lines`))
+  .catch((err: Error) => console.warn('[server] Could not build line index:', err.message));
 
-  // Pre-warm: trigger Open Data fetch
-  import('./sources/openData').then((od) => {
-    od.getStops().then((stops) => {
-      console.log(`[server] Open Data cache pre-warmed: ${stops.length} stops`);
-    });
-  }).catch(() => {
-    console.warn('[server] Could not pre-warm Open Data cache');
+import('./sources/openData').then((od) => {
+  od.getStops().then((stops) => {
+    console.log(`[server] Open Data cache pre-warmed: ${stops.length} stops`);
   });
-
-  app.listen(PORT, () => {
-    console.log(`[server] Listening on http://localhost:${PORT}`);
-  });
-}
-
-start().catch((err) => {
-  console.error('[server] Fatal startup error:', err);
-  process.exit(1);
+}).catch(() => {
+  console.warn('[server] Could not pre-warm Open Data cache');
 });
 
 export default app;

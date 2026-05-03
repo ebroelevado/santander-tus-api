@@ -125,14 +125,21 @@ router.get('/stops/:stop/arrivals', async (req: Request, res: Response) => {
   };
 
   if (lineFilter) {
-    // When line is filtered, second element contains upcoming stop IDs
-    const upcomingStops = rawData[1] || [];
+    // When line is filtered, second element contains upcoming stop NAMES (strings, not IDs)
+    const upcomingNames: string[] = rawData[1] || [];
     for (const arrival of arrivals) {
-      arrival.stops = upcomingStops.map((sid: number) => {
-        const coords = getStopCoords(sid);
-        return coords
-          ? { stopId: sid, name: coords.name, lat: coords.lat, lng: coords.lng }
-          : { stopId: sid, name: `Parada ${sid}`, lat: 0, lng: 0 };
+      // Look up stops by name
+      const allStops = await openData.getStops();
+      arrival.stops = upcomingNames.map((name: string) => {
+        const found = allStops.find(s => s.name.toUpperCase() === name.toUpperCase());
+        if (found) return { stopId: found.stopId, name: found.name, lat: found.lat, lng: found.lng };
+        // Fallback: try stops.min.json
+        for (const [key, val] of Object.entries(stopsMin)) {
+          if (val[3].toUpperCase() === name.toUpperCase()) {
+            return { stopId: Number(key), name: val[3], lat: val[1], lng: val[2] };
+          }
+        }
+        return { name, stopId: null, lat: 0, lng: 0 };
       });
     }
     response.all_lines = [lineFilter];
