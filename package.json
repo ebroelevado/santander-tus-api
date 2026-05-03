@@ -1,0 +1,25 @@
+{
+  "name": "transit-api-wrapper",
+  "version": "3.0.0",
+  "description": "API Wrapper para TUS Santander — Open Data + Legacy API + INS4G",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@insforge/sdk": "^0.0.47",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/node-fetch": "^2.6.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

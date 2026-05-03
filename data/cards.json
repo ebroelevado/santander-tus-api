@@ -1,0 +1,169 @@
+{
+    "tarjetas_tus": [
+        {
+            "id": "estandar",
+            "tipo": "Tarjeta estándar recargable",
+            "descripcion": "Tarjeta monedero para cualquier usuario. Paga cada viaje a un precio reducido.",
+            "modelo_gestion": "payAsYouGo",
+            "coste_viaje_2025": 0.40,
+            "color": "blue",
+            "features": [
+                {
+                    "titulo": "Coste del Viaje (2025)",
+                    "detalle": "0,33 € (1er semestre) y 0,40 € (2º semestre). Permite transbordo gratuito durante 1 hora.",
+                    "icono": "eurosign.circle.fill"
+                },
+                {
+                    "titulo": "Recargas",
+                    "detalle": "Recarga mínima de 6 €. Se pueden cargar importes de 6 a 10, 15, 20, 25 o 30 €.",
+                    "icono": "arrow.2.squarepath"
+                },
+                {
+                    "titulo": "Coste de Emisión",
+                    "detalle": "1,20 €.",
+                    "icono": "creditcard.fill"
+                }
+            ]
+        },
+        {
+            "id": "jovenTrimestral",
+            "tipo": "Carné Trimestral Joven",
+            "descripcion": "Abono trimestral para jóvenes de hasta 25 años con viajes ilimitados.",
+            "modelo_gestion": "subscription",
+            "precio_trimestre": 25.50,
+            "color": "orange",
+            "features": [
+                {
+                    "titulo": "Precio Trimestral (2025)",
+                    "detalle": "25,50 € por trimestre gracias a las bonificaciones vigentes.",
+                    "icono": "eurosign.circle.fill"
+                },
+                {
+                    "titulo": "Uso",
+                    "detalle": "Viajes ilimitados en todas las líneas del TUS.",
+                    "icono": "infinity.circle.fill"
+                },
+                {
+                    "titulo": "Duración",
+                    "detalle": "Validez de 3 meses. Se renueva al final de cada trimestre (Enero, Abril, Julio, Octubre).",
+                    "icono": "calendar"
+                }
+            ]
+        },
+        {
+            "id": "discapacidad",
+            "tipo": "Tarjeta para personas con discapacidad",
+            "descripcion": "Abono mensual con viajes ilimitados para personas con discapacidad reconocida.",
+            "modelo_gestion": "subscription",
+            "precio_mensual": 10.20,
+            "color": "yellow",
+            "features": [
+                {
+                    "titulo": "Precio Mensual (2025)",
+                    "detalle": "8,50 € (1er semestre) y 10,20 € (2º semestre).",
+                    "icono": "eurosign.circle.fill"
+                },
+                {
+                    "titulo": "Requisitos",
+                    "detalle": "Grado de discapacidad reconocido del 33% al 64%. Viaje gratuito para discapacidad ≥ 65%.",
+                    "icono": "person.badge.shield.checkmark.fill"
+                },
+                {
+                    "titulo": "Uso",
+                    "detalle": "Viajes ilimitados durante el mes de vigencia.",
+                    "icono": "infinity.circle.fill"
+                }
+            ]
+        },
+        {
+            "id": "familiaNumerosa",
+            "tipo": "Tarjeta de Familia Numerosa",
+            "descripcion": "Abono gratuito para todos los miembros de familias numerosas con viajes ilimitados.",
+            "modelo_gestion": "freePass",
+            "precio": 0.00,
+            "color": "orange",
+            "features": [
+                {
+                    "titulo": "Coste del Viaje",
+                    "detalle": "Viajes gratuitos e ilimitados.",
+                    "icono": "gift.fill"
+                },
+                {
+                    "titulo": "Requisitos",
+                    "detalle": "Miembros de familias con título oficial de familia numerosa, censadas en Santander.",
+                    "icono": "person.3.fill"
+                },
+                {
+                    "titulo": "Coste de Emisión",
+                    "detalle": "La obtención de la tarjeta es gratuita.",
+                    "icono": "creditcard.fill"
+                }
+            ]
+        },
+        {
+            "id": "mayor",
+            "tipo": "Tarjeta Mayor",
+            "descripcion": "Tarjeta gratuita para pensionistas mayores de 65 años con viajes ilimitados.",
+            "modelo_gestion": "freePass",
+            "precio": 0.00,
+            "color": "orange",
+            "features": [
+                {
+                    "titulo": "Coste del Viaje",
+                    "detalle": "Viajes gratuitos e ilimitados.",
+                    "icono": "gift.fill"
+                },
+                {
+                    "titulo": "Requisitos",
+                    "detalle": "Pensionistas mayores de 65 años empadronados en Santander, con límites de ingresos.",
+                    "icono": "person.fill.questionmark"
+                },
+                {
+                    "titulo": "Coste de Emisión",
+                    "detalle": "Pago único de 1,20 € por la emisión o renovación.",
+                    "icono": "creditcard.fill"
+                }
+            ]
+        },
+        {
+            "id": "pequeTUS",
+            "tipo": "Tarjeta PequeTUS",
+            "descripcion": "Tarjeta gratuita para niños de 4 a 6 años que permite viajar gratis.",
+            "modelo_gestion": "freePass",
+            "precio": 0.00,
+            "color": "yellow",
+            "features": [
+                {
+                    "titulo": "Coste del Viaje",
+                    "detalle": "Totalmente gratuito.",
+                    "icono": "gift.fill"
+                },
+                {
+                    "titulo": "Requisitos",
+                    "detalle": "Para niños y niñas de 4 a 6 años (inclusive).",
+                    "icono": "person.2.fill"
+                }
+            ]
+        },
+        {
+            "id": "juvenil",
+            "tipo": "Tarjeta Juvenil",
+            "descripcion": "Abono gratuito para jóvenes de 8 a 14 años, con viajes ilimitados.",
+            "modelo_gestion": "freePass",
+            "precio": 0.00,
+            "color": "orange",
+            "features": [
+                {
+                    "titulo": "Coste del Viaje",
+                    "detalle": "Viajes gratuitos e ilimitados.",
+                    "icono": "gift.fill"
+                },
+                {
+                    "titulo": "Requisitos",
+                    "detalle": "Para jóvenes de 8 a 14 años.",
+                    "icono": "person.2.fill"
+                }
+            ]
+        }
+    ]
+}
