@@ -1,0 +1,40 @@
+openapi: 3.1.0
+paths:
+  /api/v1/map/stops.geojson:
+    get:
+      tags: [Map]
+      summary: Mapa de paradas (GeoJSON)
+      description: |
+        Devuelve el catálogo entero de paradas pero codificado en formato estándar **GeoJSON** (`FeatureCollection`).
+        Ideal para inyectar directamente en Mapbox GL JS, Leaflet o Google Maps sin necesidad de transformar datos en cliente.
+      responses:
+        200:
+          description: Objeto GeoJSON válido.
+          content:
+            application/json:
+              example:
+                type: "FeatureCollection"
+                features:
+                  - type: "Feature"
+                    geometry:
+                      type: "Point"
+                      coordinates: [-3.8055, 43.4616]
+                    properties:
+                      stopId: 41
+                      name: "Plaza Ayuntamiento"
+              schema:
+                type: object
+
+  /api/v1/map/lines.geojson:
+    get:
+      tags: [Map]
+      summary: Trazados de líneas (GeoJSON)
+      description: |
+        Devuelve las polilíneas (rutas geométricas) de las líneas de autobús en GeoJSON (`LineString` o `MultiLineString`).
+      responses:
+        200:
+          description: Objeto GeoJSON válido.
+          content:
+            application/json:
+              schema:
+                type: object

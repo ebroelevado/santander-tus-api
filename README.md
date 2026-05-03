@@ -1,147 +1,150 @@
-# 🚌 Transit API Wrapper — TUS Santander
+<div align="center">
+  <h1>🚌 Transit API Wrapper — TUS Santander</h1>
+  <p><strong>La API más moderna, rápida y unificada para el Transporte Urbano de Santander.</strong></p>
+  <p>
+    <img src="https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js" alt="Node.js" />
+    <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript" alt="TypeScript" />
+    <img src="https://img.shields.io/badge/Express-4.x-000000?style=for-the-badge&logo=express" alt="Express" />
+    <img src="https://img.shields.io/badge/Zod-Validation-3E67B1?style=for-the-badge" alt="Zod" />
+    <img src="https://img.shields.io/badge/Scalar-API%20Docs-8A2BE2?style=for-the-badge" alt="Scalar" />
+  </p>
+</div>
 
-API REST unificada para el Transporte Urbano de Santander (TUS). Envuelve múltiples fuentes de datos — Open Data, API en tiempo real y datos estáticos — en **37 endpoints** limpios y coherentes.
+<br />
 
-## 🏗️ Arquitectura
+Una API REST diseñada con enfoque **DX-First** (Developer Experience). Envuelve múltiples fuentes de datos inconexas (Open Data estático, la API Legacy en tiempo real y configuraciones en memoria) ofreciendo una capa única con **37 endpoints** fuertemente tipados, documentados y consistentes.
 
+---
+
+## ✨ Características Principales
+
+- 📚 **Documentación Premium**: Potenciada por **Scalar** y OpenAPI 3.1. Ofrece cliente REST integrado, dark mode nativo y snippets de código.
+- 🛡️ **Validación Estricta**: Cada endpoint utiliza esquemas **Zod** para validar parámetros, purgar datos basura y devolver errores descriptivos.
+- 🚦 **Rate Limiting Global**: Protección nativa contra abusos (500 reqs/5min) con límites ajustados para el planificador de viajes intermodal.
+- ⚡ **Rendimiento Inigualable**: Caché agresiva en memoria para topología estática y balanceo dinámico hacia la API Legacy para datos en tiempo real.
+- 🗺️ **Formatos Estándar**: Soporte nativo para GeoJSON en rutas y polilíneas para integrar mapas sin fricción en el frontend.
+
+---
+
+## 🏗️ Arquitectura del Sistema
+
+```mermaid
+graph TD
+    Client[Cliente App/Web] -->|HTTP REST| API[Transit API Wrapper]
+    API -->|Zod Validation| Router
+    Router -->|Rate Limiter| Services
+
+    subgraph Fuentes de Datos
+        Services -->|Real-time| Legacy[Legacy API TUS]
+        Services -->|Estático| OpenData[Open Data Santander]
+        Services -->|Configuración| Local[Archivos Locales JSON]
+    end
 ```
-Cliente (app / web / CLI)
-        │
-        ▼
-┌──────────────────────────────┐
-│   Transit API Wrapper         │
-│   Node.js + Express + TS     │
-│                              │
-│  ┌────────┐  ┌────────────┐  │
-│  │ Routes │  │ Cache (mem)│  │
-│  │ 37 EP  │  │ Map<K,V>   │  │
-│  └────────┘  └────────────┘  │
-│                              │
-│  ┌────────────────────────┐  │
-│  │   Orquestador fuentes   │  │
-│  └────────────────────────┘  │
-└──────────┬───────────────────┘
-           │
-    ┌──────┼──────┐
-    ▼      ▼      ▼
-┌──────┐ ┌─────┐ ┌────────┐
-│Open  │ │Legacy│ │Estática│
-│Data  │ │API   │ │(JSON)  │
-│462   │ │Real- │ │Horarios│
-│parada│ │time  │ │Tarifas │
-└──────┘ └─────┘ └────────┘
+
+### Fuentes de Datos Orquestadas
+| Fuente | Función en la API |
+|--------|------------------|
+| **Open Data Santander** | 462 paradas indexadas, posiciones geográficas y catálogo de 15 líneas activas. |
+| **Legacy API TUS** | Proveedor de estimaciones de llegada en tiempo real mediante telemetría GPS de los autobuses. |
+| **Archivos Locales** | Almacenamiento rápido de *Horarios Programados* (~3200 entradas) y *Tarifas Oficiales*. |
+
+---
+
+## 📖 Documentación Interactiva (Scalar)
+
+Una vez iniciado el servidor, dirígete a la joya de la corona: la referencia interactiva de la API.
+```bash
+http://localhost:3000/api/v1/docs
+```
+Aquí encontrarás los 37 endpoints categorizados, con ejemplos de JSON, tipos de retorno y la capacidad de hacer pruebas directamente en el navegador.
+
+---
+
+## 🚀 Uso de la API (Ejemplos Rápidos)
+
+Nuestra jerarquía de URLs es puramente RESTful. En lugar de subrutas infinitas, usamos *query parameters* fuertemente tipados.
+
+### 1. Llegadas en Tiempo Real
+> Consulta cuándo llega el próximo autobús a la parada 41 (Ayuntamiento).
+```bash
+curl "http://localhost:3000/api/v1/stops/41/arrivals"
+```
+> Consulta *solo* la línea LC y limita el resultado al autobús más inminente.
+```bash
+curl "http://localhost:3000/api/v1/stops/41/arrivals?line=LC&limit=1"
 ```
 
-## 📡 Fuentes de datos
+### 2. Búsqueda y Geo-Filtros
+> Encuentra paradas buscando por nombre (Fuzzy Search).
+```bash
+curl "http://localhost:3000/api/v1/stops?q=ayuntamiento"
+```
+> Encuentra paradas alrededor de una coordenada GPS (radio de 300m).
+```bash
+curl "http://localhost:3000/api/v1/stops/nearby?lat=43.4616&lng=-3.8055&radius=300"
+```
 
-| Fuente | Qué aporta | URL |
-|--------|-----------|-----|
-| **Open Data Santander** | 462 paradas con GPS, nombres, direcciones | `datos.santander.es` |
-| **Legacy API TUS** | Estimaciones en tiempo real, rutas | `transitserver.miguelripoll23.deno.net` |
-| **stops.min.json** | ~350 paradas de respaldo | Archivo local |
-| **schedules.json** | Horarios programados (~3200) | Archivo local |
-| **colors.json** | Colores RGB por línea | Archivo local |
-| **cards.json** | 7 tarjetas/abonos TUS | Archivo local |
+### 3. Horarios Teóricos (Schedules)
+> Consulta los horarios teóricos de la Línea Centro en dirección ida para un día laborable.
+```bash
+curl "http://localhost:3000/api/v1/lines/LC/schedules?day=weekday&direction=forward"
+```
 
-## 🔌 Endpoints (37)
+### 4. Rutas en GeoJSON (Para Mapas)
+> Obtiene la línea 1 formateada directamente en GeoJSON para pintar en Leaflet o Mapbox.
+```bash
+curl "http://localhost:3000/api/v1/map/lines/1.geojson"
+```
 
-### CORE
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/health` | Estado de todas las fuentes |
-| `GET` | `/api/v1/lines` | Catálogo completo de líneas |
-| `GET` | `/api/v1/lines/:line` | Detalle de una línea |
-| `GET` | `/api/v1/lines/:line/route` | Ruta con coordenadas GPS |
-| `GET` | `/api/v1/stops` | Buscar paradas (`?q=plaza`) |
-| `GET` | `/api/v1/stops/:stop` | Detalle de parada + cercanas |
-| `GET` | `/api/v1/stops/:stop/arrivals` | Llegadas en tiempo real |
+---
 
-### LIGEROS
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/stops/:stop/next` | Solo el próximo bus |
-| `GET` | `/api/v1/stops/:stop/next/:line` | Próximo bus de línea X |
-| `GET` | `/api/v1/stops/:stop/arrivals/:line` | Llegadas filtradas por línea |
-| `GET` | `/api/v1/lines/:line/next-at/:stop` | ¿Cuándo pasa la línea X? |
-| `GET` | `/api/v1/stops/:stop/etd` | Hora estimada de salida |
+## 🚨 Manejo de Errores Estandarizado
 
-### MAPA
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/map/stops` | 462 paradas formato compacto |
-| `GET` | `/api/v1/map/lines/:line` | Ruta en GeoJSON |
-| `GET` | `/api/v1/map/lines` | Todas las líneas en GeoJSON |
+Toda respuesta HTTP con estatus `4xx` o `5xx` devuelve un objeto JSON estructurado garantizado, procesado por nuestro **Global Error Handler**. 
 
-### PLANIFICADOR
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/trip?from=X&to=Y` | Planificar viaje (directo/transbordo) |
-| `GET` | `/api/v1/stops/:stop/connections` | Paradas alcanzables sin transbordo |
+**Ejemplo de una parada que no existe (HTTP 404):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "STOP_NOT_FOUND",
+    "message": "La parada 99999 no existe",
+    "details": {
+      "source": "open_data"
+    }
+  }
+}
+```
 
-### BATCH
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `POST` | `/api/v1/batch/arrivals` | Llegadas de varias paradas |
-| `POST` | `/api/v1/batch/stops` | Info de varias paradas |
-| `POST` | `/api/v1/batch/lines` | Info de varias líneas |
+**Ejemplo de parámetro erróneo atrapado por Zod (HTTP 400):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Validation failed",
+    "details": [
+      {
+        "code": "invalid_type",
+        "expected": "number",
+        "received": "nan",
+        "path": ["lat"],
+        "message": "Expected number, received nan"
+      }
+    ]
+  }
+}
+```
 
-### COMPARACIÓN
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `POST` | `/api/v1/compare/lines` | Comparar líneas lado a lado |
-| `GET` | `/api/v1/lines/:A/intersect/:B` | Paradas comunes entre 2 líneas |
+---
 
-### TIEMPO
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/now` | Hora del servidor |
-| `GET` | `/api/v1/stops/:stop/arrivals/absolute` | Llegadas con hora exacta |
+## 🛠️ Desarrollo e Instalación
 
-### TARIFAS
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/fares` | Listar 7 tarjetas/abonos |
-| `GET` | `/api/v1/fares/:id` | Detalle de una tarjeta |
-| `GET` | `/api/v1/fares/compare` | Comparativa de tarifas |
-| `GET` | `/api/v1/fares/calculator` | Calculadora (`?trips=40&age=16`) |
+### Requisitos Mínimos
+- **Node.js** ≥ 18
+- **NPM** o **Yarn**
 
-### HORARIOS
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/schedule/lines/:line` | Horarios (`?day=L&direction=1`) |
-| `GET` | `/api/v1/schedule/lines/:line/next` | Próximo horario programado |
-| `GET` | `/api/v1/schedule/stops/:stop` | Horarios de todas las líneas en parada |
-
-### ALERTAS
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/alerts` | Alertas activas |
-| `GET` | `/api/v1/lines/:line/status` | Estado operativo de línea |
-
-### DISCOVERY + DX
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| `GET` | `/api/v1/discover` | Todo lo que una app necesita al arrancar |
-| `HEAD` | `/api/v1/discover` | Solo cabeceras |
-| `OPTIONS` | `/api/v1` | Endpoints disponibles |
-| `OPTIONS` | `/api/v1/stops/:stop` | Acciones sobre esta parada |
-
-## 🆔 Sistema de IDs de línea
-
-Las líneas tienen 3 IDs distintas según el sistema:
-
-| Línea | Legacy API | Schedules | Normalizada |
-|-------|-----------|-----------|-------------|
-| 1-18  | "1"-"18"  | "1"-"18"  | 1-18 |
-| LC    | "LC"      | **"C"**   | 100 |
-| N1    | "N1"      | **"101"** | 101 |
-| 6C1   | "6C1"     | **"61"**  | 61 |
-| 7C1   | "7C1"     | **"71"**  | 71 |
-| 24C1  | "24C1"    | **"241"** | 241 |
-
-El wrapper traduce automáticamente entre sistemas.
-
-## 📦 Instalación
+### Instalación
 
 ```bash
 git clone https://github.com/ebroelevado/transit-api-wrapper.git
@@ -149,96 +152,37 @@ cd transit-api-wrapper
 npm install
 ```
 
-## 🚀 Uso
+### Scripts Disponibles
 
 ```bash
-# Desarrollo (hot reload)
+# Iniciar en modo desarrollo con Hot Reload (tsx)
 npm run dev
 
-# Producción
+# Ejecutar el Test Suite (Vitest)
+npm test
+
+# Compilar para producción (TypeScript a dist/)
 npm run build
+
+# Arrancar la versión compilada
 npm start
 ```
 
-El servidor escucha en `http://localhost:3000`.
+---
 
-## 📋 Ejemplos
+## 🗂️ Estructura del Proyecto
 
-```bash
-# Health check
-curl http://localhost:3000/api/v1/health
-
-# Buscar paradas
-curl "http://localhost:3000/api/v1/stops?q=plaza"
-
-# Llegadas en Plaza Ayuntamiento (stop 41)
-curl http://localhost:3000/api/v1/stops/41/arrivals
-
-# Próximo bus de la LC
-curl http://localhost:3000/api/v1/stops/41/next/LC
-
-# Horarios de la LC dirección 1 en laborables
-curl "http://localhost:3000/api/v1/schedule/lines/LC?day=L&direction=1"
-
-# Planificar viaje
-curl "http://localhost:3000/api/v1/trip?from=41&to=512"
-
-# Tarifas
-curl http://localhost:3000/api/v1/fares
-
-# Calculadora de tarifas (40 viajes/mes, 30 años)
-curl "http://localhost:3000/api/v1/fares/calculator?trips=40&age=30"
-
-# Todas las paradas para mapa
-curl http://localhost:3000/api/v1/map/stops
-```
-
-## 🛠️ Stack
-
-| Componente | Tecnología |
-|-----------|-----------|
-| Runtime | Node.js ≥18 |
-| Framework | Express 4.x |
-| Lenguaje | TypeScript 5.x |
-| HTTP client | node-fetch 2.x |
-| Cache | Map<K,V> en memoria |
-| BaaS | INS4G (opcional) |
-
-## 📁 Estructura
-
-```
+El código está desacoplado siguiendo buenas prácticas de separación de responsabilidades:
+```text
 src/
-├── index.ts              # Servidor Express (puerto 3000)
-├── config.ts             # URLs, constantes, TTLs
-├── types.ts              # Tipos (Stop, Arrival, LineInfo...)
-├── sources/
-│   ├── openData.ts       # Open Data Santander (462 paradas)
-│   ├── legacyApi.ts      # Legacy API TUS (tiempo real)
-│   └── lineIndex.ts      # Catálogo de líneas (generado)
-├── routes/
-│   ├── health.ts         # Health check
-│   ├── discover.ts       # Discovery endpoint
-│   ├── lines.ts          # Líneas
-│   ├── stops.ts          # Paradas
-│   ├── arrivals.ts       # Llegadas en tiempo real
-│   ├── map.ts            # GeoJSON
-│   ├── trip.ts           # Planificador de viajes
-│   ├── batch.ts          # Llamadas múltiples
-│   ├── compare.ts        # Comparación de líneas
-│   ├── time.ts           # ETD / hora servidor
-│   ├── fares.ts          # Tarifas y abonos
-│   ├── schedules.ts      # Horarios programados
-│   ├── alerts.ts         # Alertas de servicio
-│   └── dx.ts             # OPTIONS / descubrimiento
-└── utils/
-    ├── haversine.ts      # Distancia GPS
-    └── lineMapping.ts    # Mapeo de IDs de línea
+├── controllers/          # Lógica HTTP (pasa req/res a servicios)
+├── docs/                 # Definiciones YAML para Scalar (OpenAPI 3.1)
+├── middleware/           # Rate limiting, errorHandler, validate (Zod)
+├── routes/               # Enrutadores de Express aislados por recurso
+├── schemas/              # Esquemas de Zod (api.schemas.ts)
+├── services/             # Lógica de negocio (OpenData, Trips, etc.)
+├── sources/              # Adaptadores de red (Legacy TUS, MemCache)
+├── utils/                # Utilidades puras (ApiError, Logger, Haversine)
+├── index.ts              # Entrypoint de Express
+└── swagger.ts            # Configuración OpenAPI
 ```
-
-## 🔒 Convenciones
-
-- **Null safety:** nunca `undefined`, siempre `null`
-- **Arrays:** siempre presentes (vacíos si no hay datos)
-- **Timestamps:** ISO 8601
-- **Source:** `open_data`, `legacy_api`, `static`, `stops_min`
-- **Errores:** `{ error, message, source, timestamp }`

@@ -1,3 +1,4 @@
+import 'express-async-errors';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { PORT, VERSION } from './config';
@@ -16,8 +17,7 @@ process.on('uncaughtException', (err) => {
 });
 
 // ── Route imports ───────────────────────────────────────────────────
-import swaggerUi from 'swagger-ui-express';
-const swaggerUiAny: any = swaggerUi;
+import { apiReference } from '@scalar/express-api-reference';
 import { swaggerSpec } from './swagger';
 import healthRouter from './routes/health';
 import discoverRouter from './routes/discover';
@@ -42,10 +42,14 @@ app.use(globalLimiter);
 app.use(requestLogger);
 
 // ── Mount routers ───────────────────────────────────────────────────
-// Swagger docs
-app.use('/api/v1/docs', swaggerUiAny.serve, swaggerUiAny.setup(swaggerSpec, {
-  customCss: '.swagger-ui .topbar { background-color: #1a1a2e; }',
-  customSiteTitle: 'TUS Santander API Docs',
+// Swagger/OpenAPI docs via Scalar
+app.use('/api/v1/docs', apiReference({
+  spec: {
+    content: swaggerSpec,
+  },
+  theme: 'purple',
+  layout: 'modern',
+  hideDownloadButton: true,
 }));
 app.use('/api/v1/docs.json', (_req, res) => res.json(swaggerSpec));
 

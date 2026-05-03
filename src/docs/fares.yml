@@ -1,0 +1,21 @@
+openapi: 3.1.0
+paths:
+  /api/v1/fares:
+    get:
+      tags: [Fares]
+      summary: Catálogo de tarifas y abonos
+      description: |
+        Lista oficial de precios para billetes sencillos, tarjeta estándar, abonos mensuales y tarjetas especiales (joven, peques, familia numerosa).
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              example:
+                fares:
+                  - type: "Billete Sencillo"
+                    price: 1.30
+                  - type: "Tarjeta Recargable Estándar"
+                    price: 0.66
+              schema:
+                type: object

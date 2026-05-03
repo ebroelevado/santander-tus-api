@@ -1,0 +1,18 @@
+openapi: 3.1.0
+paths:
+  /api/v1/time:
+    get:
+      tags: [Time]
+      summary: Hora del servidor TUS
+      description: |
+        Sirve para sincronizar relojes del frontend y calcular *Estimated Time of Departure* (ETD) basándose en el reloj maestro de la red TUS.
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              example:
+                server_time: "2026-05-03T20:30:00Z"
+                timezone: "Europe/Madrid"
+              schema:
+                type: object

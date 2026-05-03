@@ -1,14 +1,38 @@
-openapi: 3.0.0
+openapi: 3.1.0
 paths:
   /api/v1/lines:
     get:
       tags: [Core]
       summary: Catálogo completo de líneas de autobús
+      description: |
+        Obtiene un listado completo de todas las líneas de autobús disponibles en la red del TUS.
+        
+        La respuesta incluye metadatos visuales muy útiles como el \`color\` oficial de la línea (código HEX) y el \`text_color\` recomendado para que contraste (generalmente blanco o negro).
       responses:
         200:
           description: OK
           content:
             application/json:
+              example:
+                lines:
+                  - id: "1"
+                    name: "Pcta. Juan Carlos I - Adarzo"
+                    color: "#E30613"
+                    text_color: "#FFFFFF"
+                    destinations: ["Adarzo", "Pcta. Juan Carlos I"]
+                    stops: 38
+                    has_schedule: true
+                    active: true
+                  - id: "LC"
+                    name: "Línea Centro"
+                    color: "#00A650"
+                    text_color: "#FFFFFF"
+                    destinations: ["Estaciones", "Estaciones"]
+                    stops: 12
+                    has_schedule: true
+                    active: true
+                total: 2
+                updated: "2025-01-01T00:00:00.000Z"
               schema:
                 type: object
                 properties:
@@ -40,57 +64,40 @@ paths:
                   updated:
                     type: string
                     format: date-time
-              example:
-                lines:
-                  - id: "1"
-                    name: "Pcta. Juan Carlos I - Adarzo"
-                    color: "#E30613"
-                    text_color: "#FFFFFF"
-                    destinations: ["Adarzo", "Pcta. Juan Carlos I"]
-                    stops: 38
-                    has_schedule: true
-                    active: true
-                  - id: "LC"
-                    name: "Línea Centro"
-                    color: "#00A650"
-                    text_color: "#FFFFFF"
-                    destinations: ["Estaciones", "Estaciones"]
-                    stops: 12
-                    has_schedule: true
-                    active: true
-                  - id: "N1"
-                    name: "Búho 1"
-                    color: "#1D1D1B"
-                    text_color: "#FFFFFF"
-                    destinations: ["El Sardinero", "Corban"]
-                    stops: 42
-                    has_schedule: false
-                    active: true
-                total: 3
-                updated: "2025-01-01T00:00:00.000Z"
-        500:
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                type: object
 
   /api/v1/lines/{line}:
     get:
       tags: [Core]
       summary: Detalle de una línea específica
+      description: |
+        Devuelve información profunda sobre una única línea, incluyendo estadísticas de paradas (cuántas hay en cada dirección).
       parameters:
         - in: path
           name: line
           required: true
           schema:
             type: string
-          description: "ID de línea (ej: LC, 1, N1)"
+          description: "ID de la línea (ej: `LC`, `1`, `N1`)"
       responses:
         200:
           description: OK
           content:
             application/json:
+              example:
+                id: "LC"
+                name: "Línea Centro"
+                color: "#00A650"
+                text_color: "#FFFFFF"
+                schedule_id: "LC"
+                destinations:
+                  "1": "Estaciones"
+                  "2": "Estaciones"
+                stats:
+                  stops_total: 12
+                  stops_direction_1: 6
+                  stops_direction_2: 6
+                has_schedule: true
+                active: true
               schema:
                 type: object
                 properties:
@@ -126,42 +133,37 @@ paths:
                   active:
                     type: boolean
         404:
-          description: Line not found
+          description: La línea no existe
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: line_not_found
-                  message:
-                    type: string
-        500:
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                type: object
+              example:
+                success: false
+                error:
+                  code: "LINE_NOT_FOUND"
+                  message: "Línea no encontrada"
 
   /api/v1/lines/{line}/route:
     get:
       tags: [Core]
       summary: Ruta completa de una línea con coordenadas GPS
+      description: |
+        Obtiene el listado secuencial de todas las paradas que componen una línea, con sus coordenadas `lat`/`lng`. 
+        Muy útil para trazar polilíneas en un mapa.
       parameters:
         - in: path
           name: line
           required: true
           schema:
             type: string
-          description: ID de línea
+          description: ID de la línea
         - in: query
           name: direction
           required: false
           schema:
             type: string
+            enum: [all, "1", "2"]
             default: all
-          description: "1, 2, o all (default)"
+          description: "Filtro de dirección: `1` (Ida), `2` (Vuelta), o `all` (Ambas)"
       responses:
         200:
           description: OK
@@ -205,45 +207,37 @@ paths:
                                   type: string
                               source:
                                 type: string
-        404:
-          description: Line not found
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: line_not_found
-        500:
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                type: object
 
   /api/v1/lines/{lineA}/intersect/{lineB}:
     get:
       tags: [Compare]
-      summary: Paradas comunes entre dos líneas
+      summary: Paradas comunes entre dos líneas (Transbordos)
+      description: |
+        Calcula la intersección matemática entre dos líneas.
+        Devuelve un array con los IDs de las paradas donde ambas líneas coinciden, ideal para sugerir transbordos.
       parameters:
         - in: path
           name: lineA
           required: true
           schema:
             type: string
-          description: ID de la primera línea
+          description: ID de la primera línea (ej. `LC`)
         - in: path
           name: lineB
           required: true
           schema:
             type: string
-          description: ID de la segunda línea
+          description: ID de la segunda línea (ej. `1`)
       responses:
         200:
           description: OK
           content:
             application/json:
+              example:
+                line_a: "LC"
+                line_b: "1"
+                common_stops: [100, 101, 41]
+                total: 3
               schema:
                 type: object
                 properties:
@@ -257,9 +251,3 @@ paths:
                       type: number
                   total:
                     type: number
-        500:
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                type: object

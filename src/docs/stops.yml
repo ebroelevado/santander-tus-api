@@ -1,74 +1,107 @@
-openapi: 3.0.0
+openapi: 3.1.0
 paths:
   /api/v1/stops:
     get:
       tags: [Stops]
       summary: Buscar paradas por nombre
+      description: |
+        Realiza una búsqueda fuzzy (tolerante a errores tipográficos) en el índice de paradas de la red.
+        Si omites `q`, devolverá todas las paradas ordenadas alfabéticamente.
       parameters:
         - in: query
           name: q
           required: false
           schema:
             type: string
-          description: Texto a buscar en nombre de parada
+          description: "Texto a buscar (ej. `ayuntamiento`, `valdecilla`). Insensible a mayúsculas y acentos."
         - in: query
           name: limit
           required: false
           schema:
             type: integer
             default: 50
-          description: Resultados por página
+          description: Resultados máximos por página.
         - in: query
           name: offset
           required: false
           schema:
             type: integer
             default: 0
-          description: Offset de paginación
+          description: Desplazamiento para paginación.
       responses:
         200:
-          description: OK
+          description: Resultados de la búsqueda
           content:
             application/json:
+              example:
+                results:
+                  - stopId: 41
+                    name: "Plaza Ayuntamiento"
+                    lat: 43.4616
+                    lng: -3.8055
+                    address: "Ayuntamiento de Santander"
+                    sentido: "Sardinero"
+                    lines: ["1", "2", "LC"]
+                    source: "open_data"
+                total: 1
+                query: "ayuntamiento"
+                source: "open_data"
               schema:
                 type: object
-                properties:
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        stopId:
-                          type: number
-                        name:
-                          type: string
-                        lat:
-                          type: number
-                        lng:
-                          type: number
-                        address:
-                          type: string
-                          nullable: true
-                        sentido:
-                          type: string
-                          nullable: true
-                        lines:
-                          type: array
-                          items:
-                            type: string
-                        source:
-                          type: string
-                  total:
-                    type: number
-                  query:
-                    type: string
-                    nullable: true
-                  source:
-                    type: string
-        500:
-          description: Internal error
+
+  /api/v1/stops/nearby:
+    get:
+      tags: [Stops]
+      summary: Buscar paradas cercanas por coordenadas (Geolocalización)
+      description: |
+        Dado un punto GPS (`lat`, `lng`), encuentra todas las paradas de autobús en un radio especificado usando cálculos espaciales (Haversine).
+      parameters:
+        - in: query
+          name: lat
+          required: true
+          schema:
+            type: number
+            format: float
+          description: "Latitud del usuario"
+        - in: query
+          name: lng
+          required: true
+          schema:
+            type: number
+            format: float
+          description: "Longitud del usuario"
+        - in: query
+          name: radius
+          required: false
+          schema:
+            type: integer
+            default: 500
+          description: "Radio de búsqueda en metros (máx 2000)."
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            default: 10
+          description: "Resultados máximos a devolver."
+      responses:
+        200:
+          description: Paradas cercanas ordenadas por distancia.
           content:
             application/json:
+              example:
+                center:
+                  lat: 43.4616
+                  lng: -3.8055
+                radius_m: 500
+                total: 1
+                results:
+                  - stopId: 41
+                    name: "Plaza Ayuntamiento"
+                    lat: 43.4616
+                    lng: -3.8055
+                    lines: ["1", "2", "LC"]
+                    distance_m: 12.5
               schema:
                 type: object
 
@@ -76,6 +109,8 @@ paths:
     get:
       tags: [Stops]
       summary: Detalle completo de una parada con líneas y paradas cercanas
+      description: |
+        Devuelve el objeto profundo de una parada: coordenadas, líneas que la atraviesan (con sus colores corporativos para UI) y un pequeño índice de paradas adyacentes físicamente cercanas.
       parameters:
         - in: path
           name: stop
@@ -83,70 +118,36 @@ paths:
           schema:
             type: integer
           description: ID numérico de la parada
-          example: 41
       responses:
         200:
-          description: 'OK — Detalle de la parada (ej: stopId=41 -> "Plaza Ayuntamiento")'
+          description: Detalle de la parada
           content:
             application/json:
+              example:
+                stopId: 41
+                name: "Plaza Ayuntamiento"
+                lat: 43.4616
+                lng: -3.8055
+                address: "Ayuntamiento"
+                sentido: "Sardinero"
+                source: "open_data"
+                lines:
+                  - id: "LC"
+                    color: "#00A650"
+                    destinations: ["Estaciones"]
+                nearby:
+                  - stopId: 42
+                    name: "Correos"
+                    meters: 150
               schema:
                 type: object
-                properties:
-                  stopId:
-                    type: number
-                  name:
-                    type: string
-                  lat:
-                    type: number
-                  lng:
-                    type: number
-                  address:
-                    type: string
-                    nullable: true
-                  sentido:
-                    type: string
-                    nullable: true
-                  source:
-                    type: string
-                  lines:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        color:
-                          type: string
-                        destinations:
-                          type: array
-                          items:
-                            type: string
-                  nearby:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        stopId:
-                          type: number
-                        name:
-                          type: string
-                        meters:
-                          type: number
         404:
           description: Stop not found
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: stop_not_found
-                  message:
-                    type: string
-        500:
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                type: object
+              example:
+                success: false
+                error:
+                  code: STOP_NOT_FOUND
+                  message: La parada no existe
+                  details: { source: open_data }

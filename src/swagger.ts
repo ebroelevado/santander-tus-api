@@ -11,14 +11,46 @@ function buildOptions(): swaggerJsDoc.Options {
 
   return {
     definition: {
-      openapi: '3.0.0',
+      openapi: '3.1.0',
       info: {
         title: 'Transit API Wrapper — TUS Santander',
         version: VERSION,
-        description:
-          'API REST unificada para el Transporte Urbano de Santander (TUS). ' +
-          'Envuelve Open Data Santander, la API en tiempo real de TUS, y datos estáticos ' +
-          'en 37 endpoints limpios y coherentes.',
+        description: `
+Una API REST unificada, moderna y rápida para interactuar con los servicios del Transporte Urbano de Santander (TUS).
+
+Esta API envuelve múltiples fuentes de datos (Open Data Santander y la API Legacy del TUS) para ofrecer una experiencia de desarrollo limpia, consistente y predecible.
+
+## 🚀 Conceptos Core
+
+### Formato de Respuesta
+Todas las respuestas (incluyendo errores) devuelven JSON. Cuando ocurre un error, el formato unificado es:
+\`\`\`json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid request parameters",
+    "details": [...]
+  }
+}
+\`\`\`
+
+### Fuentes de Datos y Caché
+La API es un proxy inteligente:
+- **Open Data Santander**: Datos estáticos (paradas, rutas). Se cachean en memoria agresivamente.
+- **Legacy API**: Datos en tiempo real (estimaciones). La respuesta varía según la disponibilidad de esta API de terceros.
+
+### Límites de Uso (Rate Limiting)
+Para garantizar la estabilidad del servicio:
+- **Global**: 500 peticiones por ventana de 5 minutos por IP.
+- **Estricto (Planificador de viajes)**: 50 peticiones por minuto por IP.
+Si superas los límites, recibirás un HTTP 429 (Too Many Requests).
+
+### Paginación
+Endpoints que devuelven listas extensas (ej. búsquedas) soportan paginación mediante \`limit\` y \`offset\`:
+- \`limit\`: Máximo de items a devolver (por defecto 50).
+- \`offset\`: Items a saltar (por defecto 0).
+        `,
         contact: {
           name: 'ebroelevado',
           url: 'https://github.com/ebroelevado/transit-api-wrapper',

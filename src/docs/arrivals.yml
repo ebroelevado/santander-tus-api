@@ -1,31 +1,56 @@
-openapi: 3.0.0
+openapi: 3.1.0
 paths:
   /api/v1/stops/{stop}/arrivals:
     get:
       tags: [Arrivals]
-      summary: Obtener estimaciones de llegada a una parada en tiempo real
+      summary: Estimaciones de llegada en tiempo real
+      description: |
+        Obtiene las estimaciones de tiempo (en minutos) para los próximos autobuses que llegarán a una parada específica.
+        
+        Este endpoint consulta directamente a la **Legacy API del TUS** para obtener información en tiempo real. 
+        Si el bus tiene sistema GPS activo, se devolverán los minutos estimados. Si no, `estimate1` o `estimate2` pueden ser null.
       parameters:
         - in: path
           name: stop
           required: true
           schema:
             type: integer
-          description: "ID de la parada"
+          description: ID de la parada (ej. `41` para el Ayuntamiento).
         - in: query
           name: line
           schema:
             type: string
-          description: "Filtrar por línea (opcional)"
+          description: Opcional. Filtra las llegadas para mostrar únicamente las de una línea específica (ej. `LC`, `1`, `N1`).
         - in: query
           name: limit
           schema:
             type: integer
-          description: "Número máximo de resultados a devolver (opcional)"
+          description: Opcional. Limita el número de estimaciones devueltas por línea. Por defecto no hay límite, pero puedes usar `limit=1` si solo quieres el próximo autobús inminente.
       responses:
         200:
-          description: OK
+          description: Estimaciones recuperadas exitosamente.
           content:
             application/json:
+              example:
+                stop:
+                  stopId: 41
+                  name: "Plaza Ayuntamiento"
+                arrivals:
+                  - line: "LC"
+                    destination: "Intercambiador Sardinero"
+                    estimate1: 2
+                    estimate2: 15
+                    is_legacy: true
+                  - line: "1"
+                    destination: "Arsenio Odriozola"
+                    estimate1: 8
+                    estimate2: null
+                    is_legacy: true
+                summary:
+                  total: 2
+                  source: "legacy_api"
+                  cached: false
+                  timestamp: "2026-05-03T20:30:00.000Z"
               schema:
                 type: object
                 properties:
@@ -65,3 +90,23 @@ paths:
                       timestamp:
                         type: string
                         format: date-time
+        400:
+          description: Error de validación en los parámetros.
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: VALIDATION_ERROR
+                  message: Invalid request parameters
+                  details: []
+        404:
+          description: La parada no fue encontrada en nuestro índice.
+          content:
+            application/json:
+              example:
+                success: false
+                error:
+                  code: STOP_NOT_FOUND
+                  message: La parada 999 no existe
+                  details: { source: open_data }

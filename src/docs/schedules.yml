@@ -1,39 +1,65 @@
-openapi: 3.0.0
+openapi: 3.1.0
 paths:
   /api/v1/lines/{line}/schedules:
     get:
       tags: [Schedules]
       summary: Horarios programados de una línea
+      description: |
+        Devuelve la lista de horarios estáticos (hora teórica de salida en cabecera) para una línea específica.
+        
+        A diferencia de `/arrivals` que es tiempo real, `/schedules` devuelve el plan de servicio preestablecido y proviene del **Open Data Santander**. Es útil para mostrar al usuario la frecuencia teórica de una línea antes de que el bus comience su recorrido.
       parameters:
         - in: path
           name: line
           required: true
           schema:
             type: string
+          description: "ID de la línea (ej. `LC`, `1`, `N1`)"
         - in: query
           name: day
           schema:
             type: string
             enum: [weekday, saturday, holiday]
             default: weekday
-          description: "Día de la semana (weekday, saturday, holiday)"
+          description: |
+            Filtra por el tipo de día:
+            - `weekday`: Lunes a Viernes (laborables)
+            - `saturday`: Sábados
+            - `holiday`: Domingos y Festivos
         - in: query
           name: direction
           schema:
             type: string
             enum: [forward, backward]
             default: forward
-          description: "Dirección de la línea (forward, backward)"
+          description: |
+            Filtra por la dirección de la ruta:
+            - `forward`: Ida (Dirección 1)
+            - `backward`: Vuelta (Dirección 2)
         - in: query
           name: limit
           schema:
             type: integer
-          description: "Límite de resultados a mostrar"
+          description: "Número máximo de horas a devolver. Útil para hacer un 'Próximo horario' calculando localmente desde la hora actual si pides `limit=1` o `limit=3`."
       responses:
         200:
-          description: OK
+          description: Horarios devueltos correctamente.
           content:
             application/json:
+              example:
+                line: "LC"
+                direction: "forward"
+                day: "weekday"
+                day_name: "Laborables"
+                times:
+                  - "06:30"
+                  - "06:45"
+                  - "07:00"
+                total: 3
+                first: "06:30"
+                last: "07:00"
+                frequency_min: 15
+                source: "open_data"
               schema:
                 type: object
                 properties:
@@ -64,23 +90,27 @@ paths:
   /api/v1/stops/{stop}/schedules:
     get:
       tags: [Schedules]
-      summary: Horarios de todas las líneas en esta parada
+      summary: Horarios teóricos de todas las líneas en una parada
+      description: |
+        Similar a `/lines/{line}/schedules`, pero agrupado por todas las líneas que pasan por una parada en concreto.
+        Devuelve el plan estático (no en tiempo real). Útil para pintar la tabla horaria tradicional de la marquesina de autobús.
       parameters:
         - in: path
           name: stop
           required: true
           schema:
             type: integer
+          description: "ID numérico de la parada"
         - in: query
           name: day
           schema:
             type: string
             enum: [weekday, saturday, holiday]
             default: weekday
-          description: "Día de la semana (weekday, saturday, holiday)"
+          description: "Tipo de día a consultar."
       responses:
         200:
-          description: OK
+          description: "Horarios por parada recuperados."
           content:
             application/json:
               schema:
