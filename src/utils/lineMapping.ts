@@ -29,7 +29,10 @@ const MAP: Record<string, LineMapping> = {
 
 export function getMapping(id: string): LineMapping | undefined { return MAP[id]; }
 export function toLegacyId(id: string): string { return MAP[id]?.legacyId ?? id; }
-export function toScheduleId(id: string): string | null { return MAP[id]?.scheduleId ?? id; }
+export function toScheduleId(id: string): string | null { 
+  const entry = MAP[id];
+  return entry !== undefined ? entry.scheduleId : id; 
+}
 export function allPublicIds(): string[] { return Object.keys(MAP); }
 export function lineName(id: string): string { return `Línea ${id}`; }
 

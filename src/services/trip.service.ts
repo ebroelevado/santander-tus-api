@@ -240,6 +240,7 @@ export async function buildConnections(stopId: number) {
       for (const idx of indices) {
         for (let i = idx + 1; i < stops.length; i++) {
           const targetId = stops[i];
+          if (targetId === stopId) continue;
           if (!connections.has(targetId)) {
             connections.set(targetId, []);
           }

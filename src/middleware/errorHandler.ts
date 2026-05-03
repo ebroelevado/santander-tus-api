@@ -10,7 +10,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
       error: {
         code: 'VALIDATION_ERROR',
         message: 'Invalid request parameters',
-        details: (err as any).errors,
+        details: err.issues,
       },
     });
   }

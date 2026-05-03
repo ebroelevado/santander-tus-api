@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
-import app from '../src/index';
+import app from '../../src/index';
 
 // We can mock external calls if needed, but for /health we can test the degraded response
 describe('GET /api/v1/health', () => {
