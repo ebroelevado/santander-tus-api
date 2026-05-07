@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express';
 import * as lineIndex from '../sources/lineIndex';
-import * as legacyApi from '../sources/legacyApi';
+import * as tusNativeApi from '../sources/tusNativeApi';
 import { toScheduleId, getDayType } from '../utils/lineMapping';
 import { timeToMinutes, currentTimeStr, loadSchedules } from '../utils/helpers';
-import { parseLegacyArrivals } from '../utils/legacyParser';
+import { parseTusEstimations } from '../utils/tusNativeParser';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ const router = Router();
 let statusCache = new Map<string, { data: any; ts: number }>();
 const STATUS_CACHE_TTL = 30_000; // 30 seconds
 
-// Periodic cleanup: remove entries older than 2× TTL every 60s
+// Periodic cleanup
 const CLEANUP_INTERVAL = 60_000;
 let lastCleanup = Date.now();
 
@@ -31,7 +32,6 @@ function cleanStatusCache(): void {
 // ─── GET /api/v1/alerts ─────────────────────────────────────────────
 
 router.get('/alerts', (_req: Request, res: Response) => {
-  // Return a useful message with metadata about the alerts system
   res.json({
     alerts: [],
     total: 0,
@@ -57,30 +57,26 @@ router.get('/lines/:line/status', async (req: Request, res: Response) => {
       });
     }
 
-    // Periodic cache cleanup
     cleanStatusCache();
 
-    // Check cache
     const cached = statusCache.get(lineId);
     if (cached && Date.now() - cached.ts < STATUS_CACHE_TTL) {
       return res.json(cached.data);
     }
 
-    // Try to get real-time arrivals to check activity
     let lastKnownBusMinutesAgo: number | null = null;
     let isActive = true;
 
     const dir1Stops = info.directions['1']?.stops;
     if (dir1Stops && dir1Stops.length > 0) {
       const checkStop = dir1Stops[0];
-      const arrivalsRaw = await legacyApi.getArrivals(checkStop);
+      const resNative = await tusNativeApi.getEstimations(checkStop);
 
-      if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
+      if (!resNative || 'error' in resNative) {
         isActive = info.active;
       } else {
-        const rawEntries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
-        const parsedArrivals = parseLegacyArrivals(rawEntries);
-        const lineArrivals = parsedArrivals.filter((e: any) => e.line === lineId);
+        const parsedArrivals = parseTusEstimations(resNative);
+        const lineArrivals = parsedArrivals.filter((e) => e.line === lineId);
         if (lineArrivals.length > 0 && lineArrivals[0].minutes !== null) {
           lastKnownBusMinutesAgo = lineArrivals[0].minutes;
           isActive = true;
@@ -135,12 +131,11 @@ router.get('/lines/:line/status', async (req: Request, res: Response) => {
       },
     };
 
-    // Cache
     statusCache.set(lineId, { data: response, ts: Date.now() });
 
     res.json(response);
   } catch (err: any) {
-    console.error('[alerts] Error:', err?.message || err);
+    logger.error({ err, lineId }, '[alerts] Error in /status');
     res.status(500).json({
       error: 'internal_error',
       message: err?.message || 'Internal error',

@@ -1,10 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { getArrivals } from '../sources/legacyApi';
-import { getLine, ensureLineIndex } from '../sources/lineIndex';
-import { parseLegacyArrivals } from '../utils/legacyParser';
-import { BATCH_CONCURRENCY } from '../config';
+import * as tusNativeApi from '../sources/tusNativeApi';
+import { getLine, ensureLineIndex, getLinesForStop } from '../sources/lineIndex';
+import { parseTusEstimations } from '../utils/tusNativeParser';
+import { BATCH_CONCURRENCY, MAX_BATCH_SIZE } from '../config';
 import { Arrival } from '../types';
 import { resolveStop } from '../utils/helpers';
+import logger from '../utils/logger';
 
 const router = Router();
 
@@ -42,7 +43,18 @@ router.post('/arrivals', async (req: Request, res: Response) => {
       return res.status(400).json({
         error: 'invalid_params',
         message: 'Request body must contain a non-empty "stops" array',
-        source: 'legacy_api',
+        source: 'tus_native',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const uniqueStops = [...new Set(stops.map(Number))];
+
+    if (uniqueStops.length > MAX_BATCH_SIZE) {
+      return res.status(400).json({
+        error: 'batch_too_large',
+        message: `Batch size exceeds maximum of ${MAX_BATCH_SIZE} stops`,
+        source: 'tus_native',
         timestamp: new Date().toISOString(),
       });
     }
@@ -50,36 +62,30 @@ router.post('/arrivals', async (req: Request, res: Response) => {
     const start = Date.now();
     const errors: { stop: number; error: string }[] = [];
 
-    const tasks = stops.map((stopId: number) => async () => {
+    const tasks = uniqueStops.map((stopId: number) => async () => {
       try {
         const resolved = await resolveStop(stopId);
-        const arrivalsRaw = await getArrivals(stopId);
+        const resNative = await tusNativeApi.getEstimations(stopId);
 
-        if (!arrivalsRaw) {
-          errors.push({ stop: stopId, error: 'legacy_unavailable' });
-          return { stop: stopId, name: resolved?.name || 'Unknown', arrivals: [], error: 'legacy_unavailable' };
-        }
-        // More specific check: is it an error object rather than an arrivals array?
-        if (!Array.isArray(arrivalsRaw)) {
-          const errObj = arrivalsRaw as { error?: string };
-          if (errObj.error) {
-            errors.push({ stop: stopId, error: 'legacy_unavailable' });
-            return { stop: stopId, name: resolved?.name || 'Unknown', arrivals: [], error: 'legacy_unavailable' };
-          }
+        if (!resNative || 'error' in resNative) {
+          errors.push({ stop: stopId, error: 'tus_native_unavailable' });
+          return { stop: stopId, name: resolved?.name || 'Unknown', arrivals: [], error: 'tus_native_unavailable' };
         }
 
-        const rawEntries = Array.isArray((arrivalsRaw as any)[0]) ? (arrivalsRaw as any)[0] : [];
-        const allLineLabels: string[] = (arrivalsRaw as any)[1] || [];
+        const parsedArrivals = parseTusEstimations(resNative);
 
-        const parsedArrivals = parseLegacyArrivals(rawEntries);
-
-        const arrivals: Arrival[] = parsedArrivals.map((entry: any) => ({
+        const arrivals: Arrival[] = parsedArrivals.map((entry) => ({
           line: entry.line,
           destination: entry.destination,
           minutes: entry.minutes,
           next: entry.next,
-          color: '',
-          active: true,
+          color: entry.color,
+          active: entry.active,
+          vehicle: entry.vehicle,
+          lat: entry.lat,
+          lng: entry.lng,
+          remaining_dist_m: entry.remaining_dist_m,
+          is_realtime: entry.is_realtime,
         }));
 
         // Filter by lines if provided
@@ -91,9 +97,9 @@ router.post('/arrivals', async (req: Request, res: Response) => {
           stop: stopId,
           name: resolved?.name || 'Unknown',
           arrivals: filtered,
-          all_lines: allLineLabels,
+          all_lines: getLinesForStop(stopId),
         };
-      } catch {
+      } catch (err: any) {
         errors.push({ stop: stopId, error: 'request_failed' });
         return { stop: stopId, name: 'Unknown', arrivals: [], error: 'request_failed' };
       }
@@ -107,7 +113,8 @@ router.post('/arrivals', async (req: Request, res: Response) => {
       elapsed_ms: Date.now() - start,
     });
   } catch (err) {
-    res.status(500).json({ error: 'batch_arrivals_error', message: 'Batch arrivals failed', source: 'legacy_api', timestamp: new Date().toISOString() });
+    logger.error({ err }, '[batch] Error in /arrivals');
+    res.status(500).json({ error: 'batch_arrivals_error', message: 'Batch arrivals failed', source: 'tus_native', timestamp: new Date().toISOString() });
   }
 });
 
@@ -121,7 +128,7 @@ router.post('/stops', async (req: Request, res: Response) => {
       return res.status(400).json({
         error: 'invalid_params',
         message: 'Request body must contain a non-empty "stops" array',
-        source: 'cache',
+        source: 'gtfs',
         timestamp: new Date().toISOString(),
       });
     }
@@ -137,7 +144,7 @@ router.post('/stops', async (req: Request, res: Response) => {
 
     res.json({ results, total: results.length });
   } catch (err) {
-    res.status(500).json({ error: 'batch_stops_error', message: 'Batch stops lookup failed', source: 'cache', timestamp: new Date().toISOString() });
+    res.status(500).json({ error: 'batch_stops_error', message: 'Batch stops lookup failed', source: 'internal', timestamp: new Date().toISOString() });
   }
 });
 

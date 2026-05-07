@@ -1,6 +1,6 @@
 openapi: 3.1.0
 paths:
-  /api/v1/map/stops.geojson:
+  /api/v1/map/stops:
     get:
       operationId: getStopsGeoJSON
       tags: [Map]
@@ -36,7 +36,7 @@ paths:
                   type: { type: string, example: "FeatureCollection" }
                   features: { type: array, items: { type: object } }
 
-  /api/v1/map/lines.geojson:
+  /api/v1/map/lines:
     get:
       operationId: getLinesGeoJSON
       tags: [Map]
@@ -54,4 +54,25 @@ paths:
                 type: object
                 properties:
                   type: { type: string, example: "FeatureCollection" }
+                  features: { type: array, items: { type: object } }
+
+  /api/v1/map/lines/{line}:
+    get:
+      operationId: getLineGeoJSON
+      tags: [Map]
+      summary: Trazado vectorial de una línea específica
+      parameters:
+        - in: path
+          name: line
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: FeatureCollection con la ruta de la línea.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string }
                   features: { type: array, items: { type: object } }

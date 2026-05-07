@@ -15,7 +15,7 @@ export async function getNearbyStops(req: Request, res: Response) {
   const limit = req.query.limit as unknown as number;
 
   const results = await stopsService.findNearbyStops(lat, lng, radius, limit);
-  res.json({ results, total: results.length, center: { lat, lng }, radius, source: 'open_data' });
+  res.json({ results, total: results.length, center: { lat, lng }, radius, source: 'gtfs' });
 }
 
 export async function listOrSearchStops(req: Request, res: Response) {
@@ -24,7 +24,7 @@ export async function listOrSearchStops(req: Request, res: Response) {
   const offset = req.query.offset as unknown as number;
 
   const { paged, total } = await stopsService.searchStops(q, offset, limit);
-  res.json({ results: paged, total, query: q || null, source: 'open_data' });
+  res.json({ results: paged, total, query: q || null, source: 'gtfs' });
 }
 
 export async function getStopDetail(req: Request, res: Response) {
@@ -32,7 +32,7 @@ export async function getStopDetail(req: Request, res: Response) {
 
   const details = await stopsService.getStop(stopId);
   if (!details) {
-    throw new ApiError(404, 'STOP_NOT_FOUND', `La parada ${stopId} no existe`, { source: 'open_data' });
+    throw new ApiError(404, 'STOP_NOT_FOUND', `La parada ${stopId} no existe`, { source: 'gtfs' });
   }
 
   res.json(details);

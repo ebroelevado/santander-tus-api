@@ -3,6 +3,7 @@ import { stopCoordsCache } from '../sources/lineIndex';
 import { BUS_SPEED_KMH, TRANSFER_PENALTY_MIN } from '../config';
 import { getNextDepartureFromOrigin } from './schedules.service';
 import { MinHeap } from '../utils/MinHeap';
+import logger from '../utils/logger';
 
 export interface Edge {
   to: number;
@@ -103,7 +104,7 @@ export function buildGraph(catalog: Map<string, LineInfo>): void {
     }
   }
 
-  console.log(`[transitGraph] Built graph with ${graph.size} nodes, ${edgesAdded} line edges, and ${walkingEdges} walk edges.`);
+  logger.info(`[transitGraph] Built graph with ${graph.size} nodes, ${edgesAdded} line edges, and ${walkingEdges} walk edges.`);
 }
 
 export interface TripLeg {
@@ -138,14 +139,14 @@ interface DijkstraState {
   }[];
 }
 
-export function findOptimalRoute(
+export async function findOptimalRoute(
   fromStop: number,
   toStop: number,
   fromCoords?: { lat: number; lng: number },
   toCoords?: { lat: number; lng: number },
   departureTimeMinutes?: number,
   dayType: string = 'weekday'
-): OptimalTripOption | null {
+): Promise<OptimalTripOption | null> {
   if (!graph.has(fromStop) || !graph.has(toStop)) return null;
 
   const maxTransfers = 2;
@@ -193,7 +194,7 @@ export function findOptimalRoute(
         
         const neededDeparture = absoluteCurrentTime - tFromOrigin;
         
-        const nextDep = getNextDepartureFromOrigin(edge.line, edge.dir, dayType, neededDeparture);
+        const nextDep = await getNextDepartureFromOrigin(edge.line, edge.dir, dayType, neededDeparture);
         if (nextDep !== null) {
           const busArrivesAtStop = nextDep + tFromOrigin;
           waitTime = Math.max(0, busArrivesAtStop - absoluteCurrentTime);
@@ -209,7 +210,9 @@ export function findOptimalRoute(
         newWeight += TRANSFER_PENALTY_MIN;
       }
 
-      const stateKey = `${edge.to}-${edge.line}`;
+      // FIX BUG-CRIT-03: key must include transfer count to avoid incorrectly
+      // pruning paths that arrive via a different number of transfers.
+      const stateKey = `${edge.to}-${edge.line}-${newTransfers}`;
       const bestKnownWeight = minWeight.get(stateKey) || Infinity;
 
       if (newWeight < bestKnownWeight) {

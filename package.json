@@ -13,6 +13,8 @@
   "dependencies": {
     "@insforge/sdk": "^0.0.47",
     "@scalar/express-api-reference": "^0.9.13",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.9.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^4.21.0",

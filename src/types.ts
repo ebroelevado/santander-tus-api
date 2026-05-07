@@ -8,7 +8,7 @@ export interface Stop {
   address: string | null;
   sentido: string | null;
   lines: string[];
-  source: 'open_data' | 'stops_min';
+  source: 'open_data' | 'stops_min' | 'gtfs';
 }
 
 export interface LineInfo {
@@ -32,6 +32,11 @@ export interface Arrival {
   minutes: number | null;
   next: number | null;
   active: boolean;
+  vehicle?: number;
+  lat?: number;
+  lng?: number;
+  remaining_dist_m?: number;
+  is_realtime?: boolean;
 }
 
 export interface ArrivalWithStops extends Arrival {
@@ -69,6 +74,11 @@ export interface ParsedArrival {
   minutes: number | null;
   next: number | null;
   active: boolean;
+  vehicle?: number;
+  lat?: number;
+  lng?: number;
+  remaining_dist_m?: number;
+  is_realtime?: boolean;
 }
 
 // ─── Line Status (from legacyParser) ───────────────────────────────

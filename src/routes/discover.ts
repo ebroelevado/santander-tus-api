@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { VERSION } from '../config';
-import * as openData from '../sources/openData';
+import * as stopsCache from '../sources/stopsCache';
 import * as lineIndex from '../sources/lineIndex';
 
 const router = Router();
@@ -65,7 +65,7 @@ const router = Router();
  */
 router.get('/discover', async (_req: Request, res: Response) => {
   try {
-    const odCount = await openData.getStopCount();
+    const odCount = await stopsCache.getStopCount();
     const lines = lineIndex.getLines();
     res.json({
       app: { name: 'SANTANDER TUS API', version: VERSION },
@@ -126,7 +126,7 @@ router.get('/discover', async (_req: Request, res: Response) => {
  */
 router.head('/discover', async (_req: Request, res: Response) => {
   try {
-    const odCount = await openData.getStopCount();
+    const odCount = await stopsCache.getStopCount();
     const lines = lineIndex.getLines();
     res.setHeader('X-API-Version', VERSION);
     res.setHeader('X-Cache-Stops', String(odCount));

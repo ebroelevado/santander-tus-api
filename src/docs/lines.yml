@@ -145,6 +145,55 @@ paths:
                           items:
                             $ref: '#/components/schemas/Stop'
 
+  /api/v1/lines/{line}/stops:
+    get:
+      operationId: getLineStops
+      tags: [Core]
+      summary: Listado simplificado de paradas de una línea
+      parameters:
+        - in: path
+          name: line
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Listado de IDs de paradas.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  line: { type: string }
+                  stops: { type: array, items: { type: integer } }
+
+  /api/v1/lines/{line}/schedules:
+    get:
+      operationId: getLineSchedules
+      tags: [Schedules]
+      summary: Horarios detallados de paso
+      parameters:
+        - in: path
+          name: line
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Rejilla de horarios.
+
+  /api/v1/lines/{line}/status:
+    get:
+      operationId: getLineStatus
+      tags: [Alerts]
+      summary: Estado operativo en tiempo real de una línea
+      parameters:
+        - in: path
+          name: line
+          required: true
+          schema: { type: string }
+      responses:
+        200:
+          description: Información de actividad y alertas.
+
   /api/v1/lines/{lineA}/intersect/{lineB}:
     get:
       operationId: getLineIntersection

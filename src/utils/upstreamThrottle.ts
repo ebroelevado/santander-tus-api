@@ -38,7 +38,7 @@ const upstreamSemaphore = new Semaphore(MAX_UPSTREAM_CONCURRENT);
 let lastFetchTime = 0;
 
 /**
- * Throttle requests to the upstream Legacy API.
+ * Throttle requests to the upstream API.
  * Ensures we don't exceed MAX_UPSTREAM_CONCURRENT active requests
  * and maintains at least UPSTREAM_MIN_DELAY_MS between the *starts* of requests.
  */

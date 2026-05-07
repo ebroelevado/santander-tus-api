@@ -1,13 +1,9 @@
-import { toScheduleId, dayTypeName } from '../utils/lineMapping';
+import { dayTypeName } from '../utils/lineMapping';
 import { getLinesForStop } from '../sources/lineIndex';
-import { timeToMinutes, currentTimeStr, loadSchedules } from '../utils/helpers';
-
-/** Build the lookup key: "{scheduleId}-{direction}" */
-function scheduleKey(lineId: string, direction: string): string | null {
-  const sId = toScheduleId(lineId);
-  if (!sId) return null;
-  return `${sId}-${direction}`;
-}
+import { timeToMinutes, currentTimeStr } from '../utils/helpers';
+import * as gtfsDb from '../sources/gtfsDb';
+import * as lineIdMap from '../utils/lineIdMap';
+import logger from '../utils/logger';
 
 /** Calculate approximate headway in minutes from sorted time array */
 function calcFrequency(times: string[]): number | null {
@@ -18,7 +14,6 @@ function calcFrequency(times: string[]): number | null {
     let gap = timeToMinutes(times[i]) - timeToMinutes(times[i - 1]);
     if (gap < 0) gap += 1440; // Handle crossing midnight
     if (gap > 0 && gap < 120) {
-      // ignore unreasonable gaps (e.g. night buses)
       totalGap += gap;
       gaps++;
     }
@@ -26,46 +21,69 @@ function calcFrequency(times: string[]): number | null {
   return gaps > 0 ? Math.round(totalGap / gaps) : null;
 }
 
-export function fetchLineSchedules(line: string, direction: string, day: string) {
-  const key = scheduleKey(line, direction);
-  if (!key) return { error: 'not_available' };
+/** 
+ * Finds a representative date for a day type (laborable, sabado, domingo).
+ * Currently just returns today's date in YYYY-MM-DD format.
+ */
+function getRepresentativeDate(day: string): string {
+  const now = new Date();
+  // Simple heuristic: if day is 'domingo' and today is not Sunday, find next Sunday.
+  // For now, we'll just return today's ISO date string.
+  return now.toISOString().split('T')[0];
+}
 
-  const schedules = loadSchedules().horarios_hardcoded;
-  const entry = schedules[key];
+export async function fetchLineSchedules(lineLabel: string, direction: string, day: string) {
+  const lineId = lineIdMap.resolveLineId(lineLabel);
+  if (!lineId) return { error: 'line_not_found' };
 
-  if (!entry || !entry[day] || entry[day].length === 0) {
-    return { error: 'not_found', key };
+  const date = getRepresentativeDate(day);
+  const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId);
+  
+  // Map direction '1'/'2' to GTFS '0'/'1'
+  const gtfsDir = direction === '1' ? '0' : '1';
+  
+  // Get unique times for the ORIGIN (stop_sequence = 1)
+  const originTimes = stopTimes
+    .filter(st => String(st.direction_id) === gtfsDir && st.stop_sequence === 1)
+    .map(st => st.departure_time.substring(0, 5));
+
+  if (originTimes.length === 0) {
+    return { error: 'not_found', date, day };
   }
 
-  const times = entry[day];
-  const frequency = calcFrequency(times);
+  const frequency = calcFrequency(originTimes);
 
   return {
-    line,
+    line: lineLabel,
     direction,
     day,
+    date,
     day_name: dayTypeName(day),
-    times,
-    total: times.length,
-    first: times[0],
-    last: times[times.length - 1],
+    times: originTimes,
+    total: originTimes.length,
+    first: originTimes[0],
+    last: originTimes[originTimes.length - 1],
     frequency_min: frequency,
-    source: 'static',
+    source: 'gtfs',
   };
 }
 
-export function fetchNextService(line: string, direction: string, day: string) {
-  const key = scheduleKey(line, direction);
-  if (!key) return { error: 'not_available' };
+export async function fetchNextService(lineLabel: string, direction: string, day: string) {
+  const lineId = lineIdMap.resolveLineId(lineLabel);
+  if (!lineId) return { error: 'line_not_found' };
 
-  const schedules = loadSchedules().horarios_hardcoded;
-  const entry = schedules[key];
+  const date = getRepresentativeDate(day);
+  const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId);
+  const gtfsDir = direction === '1' ? '0' : '1';
 
-  if (!entry || !entry[day] || entry[day].length === 0) {
-    return { error: 'not_found', key };
+  const originTimes = stopTimes
+    .filter(st => String(st.direction_id) === gtfsDir && st.stop_sequence === 1)
+    .map(st => st.departure_time.substring(0, 5));
+
+  if (originTimes.length === 0) {
+    return { error: 'not_found', date };
   }
 
-  const times = entry[day];
   const now = currentTimeStr();
   const nowMinutes = timeToMinutes(now);
   const normalizedNow = nowMinutes < 240 ? nowMinutes + 1440 : nowMinutes;
@@ -73,7 +91,7 @@ export function fetchNextService(line: string, direction: string, day: string) {
   let nextTime: string | null = null;
   let nextMinutes: number | null = null;
 
-  for (const t of times) {
+  for (const t of originTimes) {
     const tMin = timeToMinutes(t);
     const normalizedT = tMin < 240 ? tMin + 1440 : tMin;
     if (normalizedT >= normalizedNow) {
@@ -85,7 +103,7 @@ export function fetchNextService(line: string, direction: string, day: string) {
 
   if (!nextTime) {
     return {
-      line, direction, day, now, next: null, status: 'service_ended',
+      line: lineLabel, direction, day, now, next: null, status: 'service_ended',
       message: 'No hay más servicios programados para hoy',
     };
   }
@@ -93,34 +111,40 @@ export function fetchNextService(line: string, direction: string, day: string) {
   const minutesFromNow = nextMinutes! - normalizedNow;
 
   return {
-    line, direction, day, now,
+    line: lineLabel, direction, day, now,
     next: { time: nextTime, minutes_from_now: minutesFromNow },
     status: 'active',
   };
 }
 
-export function fetchStopSchedules(stopId: number, day: string) {
-  const lineIds = getLinesForStop(stopId);
+export async function fetchStopSchedules(stopId: number, day: string) {
+  const lineLabels = getLinesForStop(stopId);
+  const date = getRepresentativeDate(day);
 
-  if (lineIds.length === 0) {
-    return { stop: stopId, schedules: [], total: 0, source: 'static' };
+  if (lineLabels.length === 0) {
+    return { stop: stopId, schedules: [], total: 0, source: 'gtfs' };
   }
 
-  const schedules = loadSchedules().horarios_hardcoded;
   const results: any[] = [];
 
-  for (const lineId of lineIds) {
-    for (const dir of ['1', '2']) {
-      const key = scheduleKey(lineId, dir);
-      if (!key) continue;
-      const entry = schedules[key];
-      if (!entry || !entry[day] || entry[day].length === 0) continue;
+  for (const label of lineLabels) {
+    const lineId = lineIdMap.resolveLineId(label);
+    if (!lineId) continue;
 
-      const times = entry[day];
+    for (const dir of ['1', '2']) {
+      const gtfsDir = dir === '1' ? '0' : '1';
+      const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId, stopId);
+      const times = stopTimes
+        .filter(st => String(st.direction_id) === gtfsDir)
+        .map(st => st.departure_time.substring(0, 5));
+
+      if (times.length === 0) continue;
+
       results.push({
-        line: lineId,
+        line: label,
         direction: dir,
         day,
+        date,
         day_name: dayTypeName(day),
         first: times[0],
         last: times[times.length - 1],
@@ -130,22 +154,26 @@ export function fetchStopSchedules(stopId: number, day: string) {
     }
   }
 
-  return { stop: stopId, schedules: results, total: results.length, source: 'static' };
+  return { stop: stopId, schedules: results, total: results.length, source: 'gtfs' };
 }
 
-export function getNextDepartureFromOrigin(line: string, direction: string, day: string, fromMinutes: number): number | null {
-  const key = scheduleKey(line, direction);
-  if (!key) return null;
+export async function getNextDepartureFromOrigin(lineLabel: string, direction: string, day: string, fromMinutes: number): Promise<number | null> {
+  const lineId = lineIdMap.resolveLineId(lineLabel);
+  if (!lineId) return null;
 
-  const schedules = loadSchedules().horarios_hardcoded;
-  const entry = schedules[key];
+  const date = getRepresentativeDate(day);
+  const gtfsDir = direction === '1' ? '0' : '1';
+  
+  const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId);
+  const originTimes = stopTimes
+    .filter(st => String(st.direction_id) === gtfsDir && st.stop_sequence === 1)
+    .map(st => st.departure_time.substring(0, 5));
 
-  if (!entry || !entry[day] || entry[day].length === 0) return null;
+  if (originTimes.length === 0) return null;
 
-  const times = entry[day];
   const normalizedFrom = fromMinutes < 240 ? fromMinutes + 1440 : fromMinutes;
 
-  for (const t of times) {
+  for (const t of originTimes) {
     const tMin = timeToMinutes(t);
     const normalizedT = tMin < 240 ? tMin + 1440 : tMin;
     if (normalizedT >= normalizedFrom) {

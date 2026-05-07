@@ -26,13 +26,15 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
     });
   }
 
-  // Fallback for unexpected errors
+  // Fallback for unexpected errors — log internally but don't leak details to clients
+  const isProd = process.env.NODE_ENV === 'production';
   logger.error({ err, path: req.path, method: req.method }, '[error] Unhandled Express error');
   return res.status(500).json({
     success: false,
     error: {
       code: 'INTERNAL_ERROR',
-      message: err.message || 'Unexpected internal error',
+      // In production, never expose raw error messages (info leak risk)
+      message: isProd ? 'An unexpected error occurred. Please try again later.' : (err.message || 'Unexpected internal error'),
       details: { source: 'internal', timestamp: new Date().toISOString() },
     },
   });

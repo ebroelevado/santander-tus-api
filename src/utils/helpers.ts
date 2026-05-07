@@ -5,7 +5,7 @@ import colorsRaw from '../../data/colors.json';
 import stopsMinRaw from '../../data/stops.min.json';
 import path from 'path';
 import { DATA_DIR } from '../config';
-import * as openData from '../sources/openData';
+import * as stopsCache from '../sources/stopsCache';
 
 // ─── Color helpers ─────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ export function getColor(lineId: string): string {
 
 /** Resolve a stop from Open Data, falling back to stops.min.json. */
 export async function resolveStop(stopId: number): Promise<Stop | null> {
-  const od = await openData.getStopById(stopId);
+  const od = await stopsCache.getStopById(stopId);
   if (od) return od;
   const key = String(stopId);
   const stopsMin = stopsMinRaw as unknown as Record<string, [number, number, number, string]>;
@@ -64,6 +64,27 @@ export function currentTimeStr(): string {
   const minute = parts.find(p => p.type === 'minute')?.value || '00';
   return `${hour}:${minute}`;
 }
+
+/**
+ * Returns the schedule day type for the current moment in Madrid timezone:
+ * 'weekday' (Mon-Fri), 'saturday', or 'holiday' (Sunday + public holidays).
+ * Note: Public holiday detection is not implemented; Sundays map to 'holiday'.
+ */
+export function currentDayType(): 'weekday' | 'saturday' | 'holiday' {
+  const now = new Date();
+  // Get day of week in Madrid timezone (0=Sunday, 6=Saturday)
+  const parts = new Intl.DateTimeFormat('es-ES', {
+    timeZone: 'Europe/Madrid',
+    weekday: 'short',
+  }).formatToParts(now);
+  const weekday = parts.find(p => p.type === 'weekday')?.value.toLowerCase() || '';
+
+  // Spanish locale short names: 'dom' = domingo, 'sáb' = sábado
+  if (weekday.startsWith('dom')) return 'holiday';
+  if (weekday.startsWith('sáb') || weekday.startsWith('sab')) return 'saturday';
+  return 'weekday';
+}
+
 
 /**
  * Format a Date as "HH:MM" in Europe/Madrid local time.

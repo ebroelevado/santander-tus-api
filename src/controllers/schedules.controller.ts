@@ -16,22 +16,22 @@ export async function getLineSchedules(req: Request, res: Response) {
   const direction = directionMap[directionParam] || '1';
 
   if (limit === 1) {
-    const result = schedulesService.fetchNextService(line, direction, day);
+    const result: any = await schedulesService.fetchNextService(line, direction, day);
     if (result.error === 'not_available') {
-      throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `La línea '${line}' no tiene horarios disponibles`, { source: 'static' });
+      throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `La línea '${line}' no tiene horarios disponibles`, { source: 'gtfs' });
     }
     if (result.error === 'not_found') {
-      throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `No hay horarios para la línea '${line}' en día ${dayTypeName(day)} dirección ${direction}`, { source: 'static' });
+      throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `No hay horarios para la línea '${line}' en día ${dayTypeName(day)} dirección ${direction}`, { source: 'gtfs' });
     }
     return res.json(result);
   }
 
-  const result = schedulesService.fetchLineSchedules(line, direction, day);
+  const result: any = await schedulesService.fetchLineSchedules(line, direction, day);
   if (result.error === 'not_available') {
-    throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `La línea '${line}' no tiene horarios disponibles`, { source: 'static' });
+    throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `La línea '${line}' no tiene horarios disponibles`, { source: 'gtfs' });
   }
   if (result.error === 'not_found') {
-    throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `No hay horarios para la línea '${line}' en día ${dayTypeName(day)} dirección ${direction}`, { source: 'static' });
+    throw new ApiError(404, 'SCHEDULE_NOT_FOUND', `No hay horarios para la línea '${line}' en día ${dayTypeName(day)} dirección ${direction}`, { source: 'gtfs' });
   }
 
   res.json(result);
@@ -42,6 +42,6 @@ export async function getStopSchedules(req: Request, res: Response) {
   const dayParam = req.query.day as string | undefined;
 
   const day = dayParam ? dayMap[dayParam] : getDayType();
-  const result = schedulesService.fetchStopSchedules(stopId, day);
+  const result = await schedulesService.fetchStopSchedules(stopId, day);
   res.json(result);
 }

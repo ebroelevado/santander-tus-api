@@ -103,8 +103,17 @@ router.get('/calculator', (req: Request, res: Response) => {
 
   const options: Option[] = [];
 
+  // 0. Billete Ordinario (Efectivo/CC)
+  const efectivoCost = trips * 1.3;
+  options.push({
+    id: 'ordinario',
+    name: 'Billete Ordinario (Efectivo/CC)',
+    monthly_cost: Math.round(efectivoCost * 100) / 100,
+    eligible: true,
+  });
+
   // 1. Tarjeta estándar recargable (payAsYouGo)
-  const estandarCost = trips * 0.4;
+  const estandarCost = trips * 0.6;
   options.push({
     id: 'estandar',
     name: 'Tarjeta estándar recargable',

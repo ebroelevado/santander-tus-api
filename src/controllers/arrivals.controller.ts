@@ -22,8 +22,8 @@ export async function getArrivals(req: Request, res: Response) {
 
     res.json(response);
   } catch (err: any) {
-    if (err.message === 'legacy_unavailable') {
-      throw new ApiError(503, 'LEGACY_UNAVAILABLE', 'Legacy API no responde', { source: 'legacy_api' });
+    if (err.message === 'tus_native_unavailable') {
+      throw new ApiError(503, 'TUS_NATIVE_UNAVAILABLE', 'TUS Native API no responde', { source: 'tus_native' });
     }
     throw err; // Pasa al manejador de errores global
   }

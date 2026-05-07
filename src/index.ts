@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { PORT, VERSION } from './config';
 import * as lineIndex from './sources/lineIndex';
+import * as gtfsDb from './sources/gtfsDb';
 import { connectRedis } from './sources/cacheDb';
 import { globalLimiter, strictLimiter } from './middleware/rateLimiter';
 import { requestLogger } from './middleware/requestLogger';
@@ -100,10 +101,17 @@ app.use(errorHandler);
 // ── Startup ─────────────────────────────────────────────────────────
 
 async function startServer() {
-  // Connect to Redis
+  // 1. Connect to Redis
   await connectRedis();
 
-  // Pre-warm critical cache BEFORE listening
+  // 2. Sync GTFS Database (Primary source)
+  try {
+    await gtfsDb.downloadGtfsIfStale();
+  } catch (err) {
+    logger.error({ err }, '[server] Critical error: could not sync GTFS database');
+  }
+
+  // 3. Pre-warm critical cache BEFORE listening
   try {
     await lineIndex.ensureLineIndex();
     logger.info({ lines: lineIndex.getLines().length }, '[server] Line index ready');
@@ -117,15 +125,16 @@ async function startServer() {
     });
   }
   
-  // Start background refresh
+  // 4. Start background refreshers
   lineIndex.startBackgroundRefresh();
 
-  import('./sources/openData').then((od) => {
-    od.getStops().then((stops) => {
-      logger.info({ stops: stops.length }, '[server] Open Data cache pre-warmed');
+  // 5. Pre-warm stops cache
+  import('./sources/stopsCache').then((sc) => {
+    sc.getStops().then((stops) => {
+      logger.info({ stops: stops.length }, '[server] Stops cache pre-warmed from GTFS');
     });
   }).catch(() => {
-    logger.warn('[server] Could not pre-warm Open Data cache');
+    logger.warn('[server] Could not pre-warm stops cache');
   });
 }
 

@@ -1,11 +1,12 @@
-import * as legacyApi from '../sources/legacyApi';
+import * as tusNativeApi from '../sources/tusNativeApi';
 import { CACHE_TTL } from '../config';
-import { Arrival, Stop, ArrivalsResponse } from '../types';
+import { Arrival, Stop, ArrivalsResponse, ParsedArrival } from '../types';
 import { getColor, resolveStop } from '../utils/helpers';
-import { getStops } from '../sources/openData';
-import { parseLegacyArrivals } from '../utils/legacyParser';
+import * as stopsCache from '../sources/stopsCache';
+import * as lineIndex from '../sources/lineIndex';
+import { parseTusEstimations } from '../utils/tusNativeParser';
 import { getTransient, setTransient } from '../sources/cacheDb';
-import stopsMinData from '../../data/stops.min.json';
+import logger from '../utils/logger';
 
 // In-flight request deduplication
 const inflightRequests = new Map<string, Promise<any>>();
@@ -14,12 +15,41 @@ function cacheKey(stopId: number, lineFilter?: string): string {
   return lineFilter ? `arrivals:${stopId}:${lineFilter.toUpperCase()}` : `arrivals:${stopId}`;
 }
 
-export async function fetchArrivalsForLine(lineId: string, stopId: number) {
-  const arrivals = await legacyApi.getArrivals(stopId);
-  if (!Array.isArray(arrivals)) {
-    throw new Error('Legacy API returned non-array response');
+/**
+ * Helper to find upcoming stops for a specific arrival.
+ * Uses the line index to find the sequence of stops after the current stop.
+ */
+function getUpcomingStops(lineId: string, currentStopId: number, destination: string): any[] {
+  const line = lineIndex.getLine(lineId);
+  if (!line) return [];
+
+  // 1. Identify the direction based on destination name
+  let direction = '1';
+  if (line.directions['2'] && line.directions['2'].destination.toUpperCase() === destination.toUpperCase()) {
+    direction = '2';
+  } else if (line.directions['1'] && line.directions['1'].destination.toUpperCase() !== destination.toUpperCase()) {
+    // If it doesn't match dir 1 exactly, but dir 2 is a better match or exists
+    if (line.directions['2']) direction = '2';
   }
-  return arrivals.filter((a: any) => a.lineId === lineId);
+
+  const stops = line.directions[direction]?.stops || [];
+  const currentIndex = stops.indexOf(currentStopId);
+
+  if (currentIndex === -1) return [];
+
+  // 2. Take all stops after the current one
+  const upcomingIds = stops.slice(currentIndex + 1);
+
+  return upcomingIds.map(sid => {
+    const name = lineIndex.getStopName(sid) || `Parada ${sid}`;
+    const coords = lineIndex.stopCoordsCache.get(sid) || { lat: 0, lng: 0 };
+    return {
+      stopId: sid,
+      name,
+      lat: coords.lat,
+      lng: coords.lng
+    };
+  });
 }
 
 export async function fetchSmartArrivals(stopId: number, lineFilter?: string, refresh = false): Promise<ArrivalsResponse | null> {
@@ -34,77 +64,55 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
 
   let fetchPromise = inflightRequests.get(key);
   if (!fetchPromise) {
-    fetchPromise = legacyApi.getArrivals(stopId, lineFilter).finally(() => {
+    fetchPromise = tusNativeApi.getEstimations(stopId).finally(() => {
       inflightRequests.delete(key);
     });
     inflightRequests.set(key, fetchPromise);
   }
 
-  const arrivalsRaw = await fetchPromise;
-  if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
-    throw new Error('legacy_unavailable');
+  const res = await fetchPromise;
+  if (!res || 'error' in res) {
+    throw new Error('tus_native_unavailable');
   }
 
-  const rawEntries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
-  const parsedArrivals = parseLegacyArrivals(rawEntries);
+  // Parse using the new native parser
+  let parsedArrivals = parseTusEstimations(res);
 
-  const arrivals: Arrival[] = parsedArrivals.map((entry) => ({
-    line: entry.line,
-    destination: entry.destination,
-    color: getColor(entry.line),
-    minutes: entry.minutes,
-    next: entry.next,
-    active: entry.active,
-  }));
+  // Apply line filter if provided
+  if (lineFilter) {
+    const filterUpper = lineFilter.toUpperCase();
+    parsedArrivals = parsedArrivals.filter(a => a.line.toUpperCase() === filterUpper);
+  }
+
+  const arrivals: Arrival[] = parsedArrivals.map((entry) => {
+    const arrival: Arrival = {
+      line: entry.line,
+      destination: entry.destination,
+      color: entry.color,
+      minutes: entry.minutes,
+      next: entry.next,
+      active: entry.active,
+      vehicle: entry.vehicle,
+      lat: entry.lat,
+      lng: entry.lng,
+      remaining_dist_m: entry.remaining_dist_m,
+      is_realtime: entry.is_realtime,
+    };
+
+    // Enrich with upcoming stops if it's a filtered request (similar to legacy behavior)
+    if (lineFilter) {
+      Object.assign(arrival, { stops: getUpcomingStops(entry.line, stopId, entry.destination) });
+    }
+
+    return arrival;
+  });
 
   const response: ArrivalsResponse = {
     stop: { stopId: stop.stopId, name: stop.name, lat: stop.lat, lng: stop.lng },
     updated: new Date().toISOString(),
     arrivals,
-    all_lines: [],
+    all_lines: lineIndex.getLinesForStop(stopId),
   };
-
-  if (lineFilter) {
-    const upcomingNames: string[] = arrivalsRaw[1] || [];
-    const allStops = await getStops();
-
-    const nameToStop = new Map<string, Stop>();
-    for (const s of allStops) {
-      nameToStop.set(s.name.toUpperCase(), s);
-    }
-    
-    const stopsMin = stopsMinData as unknown as Record<string, [number, number, number, string]>;
-    for (const [sKey, val] of Object.entries(stopsMin)) {
-      const upper = val[3].toUpperCase();
-      if (!nameToStop.has(upper)) {
-        nameToStop.set(upper, {
-          stopId: Number(sKey),
-          name: val[3],
-          lat: val[1],
-          lng: val[2],
-          address: '',
-          sentido: null,
-          lines: [],
-          source: 'stops_min',
-        });
-      }
-    }
-
-    const upcomingStops = upcomingNames.map((name: string) => {
-      const found = nameToStop.get(name.toUpperCase());
-      if (found) return { stopId: found.stopId, name: found.name, lat: found.lat, lng: found.lng };
-      return { name, stopId: null, lat: 0, lng: 0 };
-    });
-
-    for (const arrival of response.arrivals) {
-      // Extended properties are sometimes injected dynamically
-      Object.assign(arrival, { stops: upcomingStops });
-    }
-
-    response.all_lines = [lineFilter];
-  } else {
-    response.all_lines = arrivalsRaw[1] || [];
-  }
 
   // TTL in seconds
   await setTransient(key, response, Math.floor(CACHE_TTL.arrivals / 1000));
@@ -112,11 +120,13 @@ export async function fetchSmartArrivals(stopId: number, lineFilter?: string, re
   return response;
 }
 
-export async function fetchRawArrival(stopId: number, lineLabel?: string) {
-  const arrivalsRaw = await legacyApi.getArrivals(stopId, lineLabel);
-  if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
-    throw new Error('legacy_unavailable');
+/**
+ * Returns raw estimations from the native API.
+ */
+export async function fetchRawArrival(stopId: number) {
+  const res = await tusNativeApi.getEstimations(stopId);
+  if (!res || 'error' in res) {
+    throw new Error('tus_native_unavailable');
   }
-
-  return Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
+  return res;
 }

@@ -16,13 +16,14 @@ paths:
             application/json:
               example:
                 fares:
-                  - name: "Billete Ordinario"
-                    price: 1.30
-                    currency: "EUR"
-                  - name: "Tarjeta Transporte (Recargable)"
-                    price: 0.66
-                    currency: "EUR"
-                    min_recharge: 6.00
+                  - id: "estandar"
+                    name: "Tarjeta estándar recargable"
+                    description: "Tarjeta monedero para uso general."
+                    price_per_trip: 0.60
+                    color: "#1A73E8"
+                    features:
+                      - title: "Recargable"
+                        detail: "Mínimo 6€"
                 recharge_points:
                   - name: "Estanco N1"
                     address: "Calvo Sotelo, 1"
@@ -35,9 +36,18 @@ paths:
                     items:
                       type: object
                       properties:
+                        id: { type: string }
                         name: { type: string }
-                        price: { type: number }
-                        currency: { type: string }
+                        description: { type: string }
+                        price_per_trip: { type: number, nullable: true }
+                        color: { type: string }
+                        features:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              title: { type: string }
+                              detail: { type: string }
                   recharge_points:
                     type: array
                     items:
@@ -46,3 +56,30 @@ paths:
                         name: { type: string }
                         address: { type: string }
                         location: { $ref: '#/components/schemas/Coordinate' }
+
+  /api/v1/fares/calculator:
+    get:
+      operationId: calculateFare
+      tags: [Fares]
+      summary: Recomendador de abonos y ahorro
+      parameters:
+        - in: query
+          name: trips
+          required: true
+          schema: { type: integer }
+        - in: query
+          name: age
+          required: true
+          schema: { type: integer }
+      responses:
+        200:
+          description: Comparativa de costes mensuales.
+          content:
+            application/json:
+              example:
+                trips_per_month: 20
+                options:
+                  - id: "estandar"
+                    name: "Tarjeta estándar"
+                    monthly_cost: 12.0
+                    eligible: true

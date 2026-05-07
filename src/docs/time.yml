@@ -1,6 +1,6 @@
 openapi: 3.1.0
 paths:
-  /api/v1/time:
+  /api/v1/now:
     get:
       operationId: getServerTime
       tags: [Time]
@@ -32,3 +32,35 @@ paths:
                     type: string
                   timestamp_ms:
                     type: integer
+
+  /api/v1/stops/{stop}/etd:
+    get:
+      operationId: getStopETD
+      tags: [Time]
+      summary: Tiempo estimado de paso (ETD)
+      description: |
+        Calcula la hora exacta de llegada (ISO 8601) sumando los minutos de la estimación en tiempo real a la hora actual del servidor.
+      parameters:
+        - in: path
+          name: stop
+          required: true
+          schema: { type: integer }
+      responses:
+        200:
+          description: Estimaciones calculadas.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stop: { type: object }
+                  server_time: { type: string }
+                  arrivals:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        line: { type: string }
+                        destination: { type: string }
+                        minutes: { type: integer, nullable: true }
+                        etd: { type: string, nullable: true }

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getStops } from '../sources/openData';
+import * as stopsCache from '../sources/stopsCache';
 import { getLines, getLine, ensureLineIndex, stopCoordsCache } from '../sources/lineIndex';
 import { resolveStop } from '../utils/helpers';
 

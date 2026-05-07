@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "flutter-adaptive-ui": {
+      "source": "madteacher/mad-agents-skills",
+      "sourceType": "github",
+      "skillPath": "flutter-adaptive-ui/SKILL.md",
+      "computedHash": "2b2d5e8fc1ff78477e82b224f7546f9b74bc4cfd70e0399a78fd06c1ac52aaad"
+    },
+    "flutter-apply-architecture-best-practices": {
+      "source": "flutter/skills",
+      "sourceType": "github",
+      "skillPath": "skills/flutter-apply-architecture-best-practices/SKILL.md",
+      "computedHash": "2b1b63214d6b153c50aacd4bbcb76ce91dece449de9e06f477f8aad3163d667f"
+    }
+  }
+}

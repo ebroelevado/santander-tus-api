@@ -5,11 +5,24 @@ import * as tripService from '../services/trip.service';
 import { ApiError } from '../utils/ApiError';
 
 export async function planTrip(req: Request, res: Response) {
+  // Zod `validate` middleware transforms query strings to numbers before we get here
   const fromId = req.query.from as unknown as number;
   const toId = req.query.to as unknown as number;
 
+  // Both are now real numbers thanks to tripQuerySchema.transform(Number)
   if (fromId === toId) {
-    return res.status(200).json({ from: { stopId: fromId, name: getStopName(fromId) || 'Unknown' }, to: { stopId: toId, name: getStopName(toId) || 'Unknown' }, options: [], summary: { total_options: 0, direct_count: 0, transfer_count: 0, best_duration_min: null, message: 'Origin and destination are the same' } });
+    return res.status(200).json({
+      from: { stopId: fromId, name: getStopName(fromId) || 'Unknown' },
+      to: { stopId: toId, name: getStopName(toId) || 'Unknown' },
+      options: [],
+      summary: {
+        total_options: 0,
+        direct_count: 0,
+        transfer_count: 0,
+        best_duration_min: null,
+        message: 'Origin and destination are the same',
+      },
+    });
   }
 
   await ensureLineIndex();
@@ -23,7 +36,18 @@ export async function planTrip(req: Request, res: Response) {
   const topOptions = allOptions.slice(0, 10);
 
   if (topOptions.length === 0) {
-    return res.status(200).json({ from: { stopId: fromId, name: fromStop.name }, to: { stopId: toId, name: toStop.name }, options: [], summary: { total_options: 0, direct_count: 0, transfer_count: 0, best_duration_min: null, message: 'No route found' } });
+    return res.status(200).json({
+      from: { stopId: fromId, name: fromStop.name },
+      to: { stopId: toId, name: toStop.name },
+      options: [],
+      summary: {
+        total_options: 0,
+        direct_count: 0,
+        transfer_count: 0,
+        best_duration_min: null,
+        message: 'No route found',
+      },
+    });
   }
 
   const bestDuration = topOptions[0].estimated_total_min;
@@ -34,11 +58,18 @@ export async function planTrip(req: Request, res: Response) {
     from: { stopId: fromId, name: fromStop.name },
     to: { stopId: toId, name: toStop.name },
     options: topOptions,
-    summary: { total_options: topOptions.length, direct_count: directCount, transfer_count: transferCount, best_duration_min: bestDuration, message: `${topOptions.length} route(s) found` },
+    summary: {
+      total_options: topOptions.length,
+      direct_count: directCount,
+      transfer_count: transferCount,
+      best_duration_min: bestDuration,
+      message: `${topOptions.length} route(s) found`,
+    },
   });
 }
 
 export async function getConnections(req: Request, res: Response) {
+  // stopIdSchema.transform(Number) ensures this is a real number
   const stopId = req.params.stop as unknown as number;
 
   await ensureLineIndex();

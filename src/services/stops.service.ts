@@ -1,4 +1,4 @@
-import * as openData from '../sources/openData';
+import * as stopsCache from '../sources/stopsCache';
 import * as lineIndex from '../sources/lineIndex';
 import { haversine } from '../utils/haversine';
 import { NEARBY_RADIUS } from '../config';
@@ -24,7 +24,7 @@ function cleanNearbyCache(): void {
 }
 
 export async function findNearbyStops(lat: number, lng: number, radius: number, limit: number) {
-  const allStops = await openData.getStops();
+  const allStops = await stopsCache.getStops();
   const results = allStops
     .map(s => ({
       stopId: s.stopId,
@@ -43,9 +43,9 @@ export async function findNearbyStops(lat: number, lng: number, radius: number, 
 export async function searchStops(q: string | undefined, offset: number, limit: number) {
   let results: Stop[];
   if (q) {
-    results = await openData.searchStops(q);
+    results = await stopsCache.searchStops(q);
   } else {
-    results = await openData.getStops();
+    results = await stopsCache.getStops();
   }
 
   results = results.map(s => ({ ...s, lines: lineIndex.getLinesForStop(s.stopId) }));
@@ -70,7 +70,7 @@ export async function getStop(stopId: number) {
   if (cached && Date.now() - cached.ts < NEARBY_CACHE_TTL) {
     nearby = cached.data;
   } else {
-    const allStops = await openData.getStops();
+    const allStops = await stopsCache.getStops();
     nearby = allStops
       .filter(s => s.stopId !== stopId)
       .map(s => ({ stopId: s.stopId, name: s.name, meters: Math.round(haversine(stop.lat, stop.lng, s.lat, s.lng)) }))

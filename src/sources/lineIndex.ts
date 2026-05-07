@@ -1,31 +1,24 @@
-// ─── Line Index — Builds a line catalog by discovering lines from the Legacy API ───
-// Called once at startup (or when cache expires after CACHE_TTL.lines).
+// ─── Line Index — Builds a line catalog from the GTFS SQLite database ───
+// Replaces the discovery logic from Legacy API.
 // Algorithm:
-//   1. POST /api/v1/estimations/get-compact {stopId: 41} → allLineLabels
-//   2. For each line, POST /api/v1/routes/get-compact × 2 (both directions)
-//   3. Enrich with colors (colors.json) and schedule presence (schedules.json)
-//   4. Cache in memory
+//   1. Query gtfsDb.queryLines() to get all lines.
+//   2. For each line, query gtfsDb.queryStopTimesForLine() to get ordered stops.
+//   3. Enrich with colors (directly from GTFS) and schedule info.
+//   4. Cache in memory and persist to Redis.
 //   5. Build precomputed indices (StopToLinesMap, StopPositionIndex, LineIntersectionIndex,
 //      StopNameCache, circular detection, LinePositionMaps)
 
-import fetch from 'node-fetch';
-import { LEGACY_API_BASE, DISCOVERY_STOP_ID, CACHE_TTL } from '../config';
+import { CACHE_TTL } from '../config';
 import { LineInfo } from '../types';
 import { toScheduleId, lineName, getTextColor } from '../utils/lineMapping';
 import { getColor } from '../utils/helpers';
 import logger from '../utils/logger';
 import * as cacheDb from './cacheDb';
+import * as gtfsDb from './gtfsDb';
+import * as lineIdMap from '../utils/lineIdMap';
 
-// ── Static data ────────────────────────────────────────────────────
+// ── Static data fallback ───────────────────────────────────────────
 import schedulesRaw from '../../data/schedules.json';
-import stopsMinRaw from '../../data/stops.min.json';
-
-// ── Types for Legacy API responses ─────────────────────────────────
-interface RouteStopEntry {
-  stopId: number;
-  name: string;
-  lines: string[];
-}
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -35,45 +28,6 @@ function hasSchedule(lineId: string): boolean {
   const schedulesRawTyped = schedulesRaw as { horarios_hardcoded?: Record<string, unknown> };
   const schedules = schedulesRawTyped.horarios_hardcoded || {};
   return `${scheduleId}-1` in schedules || `${scheduleId}-2` in schedules;
-}
-
-// ── Legacy API calls ───────────────────────────────────────────────
-
-import { throttledFetch } from '../utils/upstreamThrottle';
-
-async function fetchAllLineLabels(stopId: number): Promise<string[]> {
-  return throttledFetch(async () => {
-    const url = `${LEGACY_API_BASE}/api/v1/estimations/get-compact`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stopId }),
-    });
-    if (!res.ok) throw new Error(`Legacy API /estimations/get-compact error: ${res.status}`);
-    const data = (await res.json()) as [unknown, string[]];
-    return data[1] || [];
-  });
-}
-
-async function fetchRoute(stopId: number, line: string): Promise<RouteStopEntry[]> {
-  return throttledFetch(async () => {
-    const url = `${LEGACY_API_BASE}/api/v1/routes/get-compact`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stopId, lineLabel: line }),
-    });
-    if (!res.ok) throw new Error(`Legacy API /routes/get-compact error: ${res.status}`);
-    const data = (await res.json()) as Array<[number, string, string[]]>;
-    if (!Array.isArray(data) || data.length === 0) return [];
-    return data.map(
-      (entry): RouteStopEntry => ({
-        stopId: entry[0],
-        name: entry[1],
-        lines: entry[2],
-      }),
-    );
-  });
 }
 
 // ── In-memory cache (L1) ───────────────────────────────────────────
@@ -95,10 +49,6 @@ let linePositionMaps: Map<string, Map<string, Map<number, number>>> = new Map();
 
 export const stopNameCache: Map<number, string> = new Map();
 export const stopCoordsCache: Map<number, { lat: number; lng: number }> = new Map();
-
-function isCacheValid(): boolean {
-  return linesCache !== null && Date.now() - lastBuilt < CACHE_TTL.lines;
-}
 
 // ── Index builders ─────────────────────────────────────────────────
 
@@ -210,86 +160,91 @@ function detectCircular(line: LineInfo): boolean {
   return false;
 }
 
-function populateStopNameAndCoordsSync(): void {
-  const raw = stopsMinRaw as Record<string, any[]>;
-  for (const [key, value] of Object.entries(raw)) {
-    const stopId = parseInt(key, 10);
-    if (isNaN(stopId)) continue;
-    const lat = value[1] as number;
-    const lng = value[2] as number;
-    const name = value[3] as string | undefined;
-    if (name) stopNameCache.set(stopId, name);
-    if (lat && lng) stopCoordsCache.set(stopId, { lat, lng });
-  }
-}
-
-async function populateStopNameAndCoordsAsync(): Promise<void> {
+function populateStopNameAndCoordsFromGtfs(): void {
   try {
-    const { getStops } = await import('./openData');
-    const stops = await getStops();
+    const stops = gtfsDb.queryStops();
     for (const stop of stops) {
-      if (stop.name) stopNameCache.set(stop.stopId, stop.name);
-      stopCoordsCache.set(stop.stopId, { lat: stop.lat, lng: stop.lng });
+      stopNameCache.set(stop.stopId, stop.name);
+      stopCoordsCache.set(stop.stopId, { lat: stop.lat, lng: stop.lon });
     }
-    logger.info({ count: stops.length }, '[lineIndex] Stop names & coords updated from openData');
+    logger.info({ count: stops.length }, '[lineIndex] Stop names & coords populated from GTFS');
   } catch (err) {
-    logger.warn({ err }, '[lineIndex] Could not load openData stops for coords cache');
+    logger.error({ err }, '[lineIndex] Failed to populate stops from GTFS');
   }
 }
 
 // ── Builder ────────────────────────────────────────────────────────
 
 /**
- * Rebuild the line catalog from the Legacy API and save to Redis.
+ * Rebuild the line catalog from the GTFS database and save to Redis.
  */
 async function performLineIndexBuild(): Promise<void> {
   if (isBuilding) return;
   isBuilding = true;
   
   try {
-    logger.info('[lineIndex] Building line catalog from Legacy API...');
-    const allLineLabels = await fetchAllLineLabels(DISCOVERY_STOP_ID);
-    logger.info(`[lineIndex] Discovered ${allLineLabels.length} active line(s): ${allLineLabels.join(', ')}`);
-
+    logger.info('[lineIndex] Building line catalog from GTFS SQLite...');
+    
+    // 1. Initialize Line ID Map
+    lineIdMap.initLineMap();
+    
+    // 2. Query all lines from GTFS
+    const gtfsLines = gtfsDb.queryLines();
     const newCache = new Map<string, LineInfo>();
 
-    for (const lineId of allLineLabels) {
+    for (const gl of gtfsLines) {
       try {
-        const dir1Stops = await fetchRoute(DISCOVERY_STOP_ID, lineId);
-        let dir2Stops: RouteStopEntry[] = [];
-        
-        if (dir1Stops.length > 0) {
-          const lastStopId = dir1Stops[dir1Stops.length - 1].stopId;
-          if (lastStopId !== DISCOVERY_STOP_ID) {
-            dir2Stops = await fetchRoute(lastStopId, lineId);
-          }
-        }
+        const lineLabel = gl.shortName.replace(/['"]/g, '');
+        const lineId = Number(gl.lineId);
 
+        // 3. Get ordered stops for this line
+        const stopTimes = gtfsDb.queryStopTimesForLine(lineId);
+        
         const destinations: { [dir: string]: string } = {};
         const directions: { [dir: string]: { destination: string; stops: number[] } } = {};
 
-        if (dir1Stops.length > 0) {
-          const dest = dir1Stops[dir1Stops.length - 1].name;
-          destinations['1'] = dest;
-          directions['1'] = { destination: dest, stops: dir1Stops.map((s) => s.stopId) };
-        }
-
-        if (dir2Stops.length > 0) {
-          const dest = dir2Stops[dir2Stops.length - 1].name;
-          destinations['2'] = dest;
-          directions['2'] = { destination: dest, stops: dir2Stops.map((s) => s.stopId) };
+        // Group stop times by direction (direction_id is string '0' or '1' in SQLite Trips table)
+        const stopsByDir = new Map<string, number[]>();
+        
+        // We also need the destination name for each direction
+        // In our schema, Trips has a destination field. 
+        // We'll just take the destination from the first trip we find for each direction.
+        const db = gtfsDb.openDb();
+        const tripDirs = db.prepare('SELECT direction, destination FROM Trips WHERE lineId = ? GROUP BY direction').all(lineId) as { direction: string, destination: string }[];
+        
+        for (const td of tripDirs) {
+          const dirId = td.direction === '0' ? '1' : '2'; // Map '0'/'1' to '1'/'2'
+          const stops = stopTimes
+            .filter(st => String(st.direction_id) === td.direction)
+            // Dedup stops in case multiple trips are returned
+            .map(st => st.stop_id);
+          
+          // Dedup while keeping order (using first trip sequence)
+          const uniqueStops: number[] = [];
+          const seen = new Set<number>();
+          // Find first tripId for this direction to get a clean sequence
+          const firstTrip = stopTimes.find(st => String(st.direction_id) === td.direction)?.trip_id;
+          if (firstTrip) {
+            const tripStops = stopTimes.filter(st => st.trip_id === firstTrip).map(st => st.stop_id);
+            directions[dirId] = { destination: td.destination, stops: tripStops };
+            destinations[dirId] = td.destination;
+          }
         }
 
         const stopsDir1 = directions['1']?.stops.length || 0;
         const stopsDir2 = directions['2']?.stops.length || 0;
-        const scheduleId = toScheduleId(lineId);
+        
+        // Use color from GTFS, add # if missing
+        let color = gl.color;
+        if (color && !color.startsWith('#')) color = '#' + color;
+        if (!color) color = getColor(lineLabel);
 
         const lineInfo: LineInfo = {
-          id: lineId,
-          name: lineName(lineId),
-          color: getColor(lineId),
-          text_color: getTextColor(lineId),
-          schedule_id: scheduleId || null,
+          id: lineLabel,
+          name: lineName(lineLabel),
+          color: color,
+          text_color: getTextColor(lineLabel),
+          schedule_id: toScheduleId(lineLabel) || null,
           destinations,
           directions,
           stats: {
@@ -297,15 +252,14 @@ async function performLineIndexBuild(): Promise<void> {
             stops_direction_1: stopsDir1,
             stops_direction_2: stopsDir2,
           },
-          has_schedule: hasSchedule(lineId),
+          has_schedule: hasSchedule(lineLabel),
           active: true,
           is_circular: false,
         };
 
-        newCache.set(lineId, lineInfo);
-        logger.debug(`[lineIndex]   ${lineId}: dir1=${stopsDir1} stops, dir2=${stopsDir2} stops`);
+        newCache.set(lineLabel, lineInfo);
       } catch (err) {
-        logger.error({ err, lineId }, `[lineIndex] Failed to build route for line`);
+        logger.error({ err, gl }, `[lineIndex] Failed to build route for line`);
       }
     }
 
@@ -320,9 +274,7 @@ async function performLineIndexBuild(): Promise<void> {
     lineIntersectionIndex = buildLineIntersectionIndex(newCache);
     linePositionMaps = buildLinePositionMaps(newCache);
 
-    if (stopNameCache.size === 0) {
-      populateStopNameAndCoordsSync();
-    }
+    populateStopNameAndCoordsFromGtfs();
 
     // Build the transit graph for the Trip Planner
     const { buildGraph } = await import('../services/transitGraph');
@@ -330,7 +282,7 @@ async function performLineIndexBuild(): Promise<void> {
 
     lastBuilt = Date.now();
     
-    logger.info(`[lineIndex] Catalog rebuilt: ${newCache.size} lines.`);
+    logger.info(`[lineIndex] Catalog rebuilt from GTFS: ${newCache.size} lines.`);
     
     // Persist to Redis (L2)
     try {
@@ -341,11 +293,6 @@ async function performLineIndexBuild(): Promise<void> {
     } catch (err) {
       logger.warn({ err }, '[lineIndex] Failed to persist to Redis');
     }
-
-    // Async tasks
-    populateStopNameAndCoordsAsync().catch((err) => {
-      logger.warn({ err }, '[lineIndex] Background coords cache update failed');
-    });
 
   } finally {
     isBuilding = false;
@@ -377,20 +324,17 @@ export async function ensureLineIndex(): Promise<void> {
       stopToLinesMap = redisIndices.stopToLines;
       lineIntersectionIndex = redisIndices.intersections;
       linePositionMaps = redisIndices.positions;
-      // We must reconstruct stopPositionIndex because we didn't serialize it explicitly
-      // (it can be derived quickly from linesCache)
       stopPositionIndex = buildStopPositionIndex(redisLines);
       lastBuilt = parseInt(redisLastBuilt, 10);
       
-      populateStopNameAndCoordsSync();
-      populateStopNameAndCoordsAsync().catch(() => {});
+      populateStopNameAndCoordsFromGtfs();
       
       logger.info('[lineIndex] Loaded catalog from Redis successfully.');
       return;
     }
 
-    // L3: Cold Start (Fetch from Legacy API)
-    logger.warn('[lineIndex] Cache miss in RAM and Redis. Performing cold start build...');
+    // L3: Cold Start (Build from GTFS)
+    logger.warn('[lineIndex] Cache miss. Building from GTFS...');
     await performLineIndexBuild();
   })();
 
@@ -403,51 +347,59 @@ export async function ensureLineIndex(): Promise<void> {
 
 /**
  * Starts a background interval to refresh the catalog every 24h.
- * This runs silently and doesn't block incoming requests.
+ * Synchronized with GTFS refresh.
+ */
+/**
+ * Starts a background interval to refresh the catalog.
+ * It will check for GTFS updates and rebuild the index if needed.
  */
 export function startBackgroundRefresh(): void {
   if (refreshInterval) clearInterval(refreshInterval);
-  refreshInterval = setInterval(() => {
-    logger.info('[lineIndex] Triggering background catalog refresh...');
-    performLineIndexBuild().catch(err => {
+  refreshInterval = setInterval(async () => {
+    try {
+      logger.info('[lineIndex] Checking for updates (GTFS + Catalog)...');
+      
+      // 1. Check for GTFS update
+      const gtfsUpdated = await gtfsDb.downloadGtfsIfStale();
+      
+      // 2. Rebuild if GTFS was updated or if RAM cache is somehow empty
+      if (gtfsUpdated || !linesCache || linesCache.size === 0) {
+        await performLineIndexBuild();
+      } else {
+        logger.info('[lineIndex] No GTFS update detected. Skipping rebuild.');
+      }
+    } catch (err) {
       logger.error({ err }, '[lineIndex] Background refresh failed');
-    });
+    }
   }, CACHE_TTL.lines);
 }
 
 // ── Public accessors ───────────────────────────────────────────────
-// Note: all accessors are synchronous and assume ensureLineIndex() was called by the route layer.
 
-/** Return all cached lines (empty array if catalog hasn't been built yet). */
 export function getLines(): LineInfo[] {
   if (!linesCache) return [];
   return Array.from(linesCache.values());
 }
 
-/** Look up a single line by its public ID (e.g. "LC", "1", "N1"). */
 export function getLine(id: string): LineInfo | undefined {
   return linesCache?.get(id);
 }
 
-/** Return every line that passes through the given stop (O(1) using StopToLinesMap). */
 export function getLinesForStop(stopId: number): string[] {
   const lineSet = stopToLinesMap.get(stopId);
   return lineSet ? Array.from(lineSet) : [];
 }
 
-/** Return the ordered stop IDs for a given line and direction ("1" or "2"). */
 export function getLineStops(line: string, direction: string): number[] {
   const info = linesCache?.get(line);
   if (!info) return [];
   return info.directions[direction]?.stops || [];
 }
 
-/** Return all lineIds passing through a stop (alias for getLinesForStop, O(1)). */
 export function getStopLines(stopId: number): string[] {
   return getLinesForStop(stopId);
 }
 
-/** Return all positions (lineId, dir, position) for a given stop across all lines (O(1)). */
 export function getStopPositions(stopId: number): Array<{ lineId: string; dir: string; position: number }> {
   const lineMap = stopPositionIndex.get(stopId);
   if (!lineMap) return [];
@@ -465,19 +417,16 @@ export function getStopPositions(stopId: number): Array<{ lineId: string; dir: s
   return results;
 }
 
-/** Return common stopIds between two lines (O(1), alphabetically sorted key). */
 export function getCommonStops(lineA: string, lineB: string): number[] {
   const sorted = [lineA, lineB].sort();
   const key = `${sorted[0]}|${sorted[1]}`;
   return lineIntersectionIndex.get(key) || [];
 }
 
-/** Look up a stop's name from the precomputed cache (sync from stops.min.json, async from openData). */
 export function getStopName(stopId: number): string | null {
   return stopNameCache.get(stopId) ?? null;
 }
 
-/** Return a Map<stopId, position> for a specific line and direction (O(1) from precomputed cache). */
 export function getLinePositionMap(lineId: string, dir: string): Map<number, number> | null {
   const dirMaps = linePositionMaps.get(lineId);
   if (!dirMaps) return null;

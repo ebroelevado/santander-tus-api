@@ -1,12 +1,14 @@
 import { Router, Request, Response } from 'express';
-import * as legacyApi from '../sources/legacyApi';
+import * as tusNativeApi from '../sources/tusNativeApi';
 import { CACHE_TTL } from '../config';
-import { resolveStop, formatLocalTime, getColor, getMadridOffset } from '../utils/helpers';
-import { parseLegacyArrivals } from '../utils/legacyParser';
+import { resolveStop, formatLocalTime, getMadridOffset } from '../utils/helpers';
+import { parseTusEstimations } from '../utils/tusNativeParser';
+import * as lineIndex from '../sources/lineIndex';
+import logger from '../utils/logger';
 
 const router = Router();
 
-// ─── ETD cache (same pattern as arrivalsCache) ─────────────────────
+// ─── ETD cache ─────────────────────────────────────────────────────
 
 const etdCache = new Map<string, { data: any; ts: number }>();
 
@@ -23,19 +25,29 @@ interface EtdEntry {
   minutes: number | null;
   etd: string | null;
   etd_local: string | null;
+  vehicle?: number;
+  lat?: number;
+  lng?: number;
+  remaining_dist_m?: number;
+  is_realtime?: boolean;
 }
 
-function computeEtds(entries: any[], serverTime: Date): EtdEntry[] {
-  const parsed = parseLegacyArrivals(entries);
+function computeEtds(res: tusNativeApi.TusNativeResponse, serverTime: Date): EtdEntry[] {
+  const parsed = parseTusEstimations(res);
   return parsed.map((entry): EtdEntry => {
     const etdDate = entry.minutes !== null ? new Date(serverTime.getTime() + entry.minutes * 60 * 1000) : null;
     return {
       line: entry.line,
       destination: entry.destination,
-      color: getColor(entry.line),
+      color: entry.color,
       minutes: entry.minutes,
       etd: etdDate ? etdDate.toISOString() : null,
       etd_local: etdDate ? formatLocalTime(etdDate) : null,
+      vehicle: entry.vehicle,
+      lat: entry.lat,
+      lng: entry.lng,
+      remaining_dist_m: entry.remaining_dist_m,
+      is_realtime: entry.is_realtime,
     };
   });
 }
@@ -72,7 +84,7 @@ router.get('/stops/:stop/etd', async (req: Request, res: Response) => {
     const stopId = parseInt(req.params.stop as string, 10);
     if (isNaN(stopId)) {
       return res.status(400).json({
-        error: 'invalid_params', message: 'stop must be a number', source: 'legacy_api',
+        error: 'invalid_params', message: 'stop must be a number', source: 'tus_native',
         timestamp: new Date().toISOString(),
       });
     }
@@ -87,24 +99,22 @@ router.get('/stops/:stop/etd', async (req: Request, res: Response) => {
     const stop = await resolveStop(stopId);
     if (!stop) {
       return res.status(404).json({
-        error: 'stop_not_found', message: `La parada ${stopId} no existe`, source: 'open_data',
+        error: 'stop_not_found', message: `La parada ${stopId} no existe`, source: 'gtfs',
         timestamp: new Date().toISOString(),
       });
     }
 
-    const arrivalsRaw = await legacyApi.getArrivals(stopId);
+    const resNative = await tusNativeApi.getEstimations(stopId);
 
-    if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
+    if (!resNative || 'error' in resNative) {
       return res.status(503).json({
-        error: 'legacy_unavailable', message: 'Legacy API no responde', source: 'legacy_api',
+        error: 'tus_native_unavailable', message: 'TUS Native API no responde', source: 'tus_native',
         timestamp: new Date().toISOString(),
       });
     }
 
-    const entries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
     const serverTime = new Date();
-
-    const arrivals = computeEtds(entries, serverTime);
+    const arrivals = computeEtds(resNative, serverTime);
 
     const response = {
       stop: { stopId: stop.stopId, name: stop.name, lat: stop.lat, lng: stop.lng },
@@ -117,7 +127,7 @@ router.get('/stops/:stop/etd', async (req: Request, res: Response) => {
 
     res.json(response);
   } catch (err: any) {
-    console.error('[time] Error:', err?.message || err);
+    logger.error({ err }, '[time] Error in /etd');
     res.status(500).json({
       error: 'internal_error', message: err?.message || 'Internal error', source: 'internal',
       timestamp: new Date().toISOString(),
@@ -132,7 +142,7 @@ router.get('/stops/:stop/arrivals/absolute', async (req: Request, res: Response)
     const stopId = parseInt(req.params.stop as string, 10);
     if (isNaN(stopId)) {
       return res.status(400).json({
-        error: 'invalid_params', message: 'stop must be a number', source: 'legacy_api',
+        error: 'invalid_params', message: 'stop must be a number', source: 'tus_native',
         timestamp: new Date().toISOString(),
       });
     }
@@ -140,33 +150,31 @@ router.get('/stops/:stop/arrivals/absolute', async (req: Request, res: Response)
     const stop = await resolveStop(stopId);
     if (!stop) {
       return res.status(404).json({
-        error: 'stop_not_found', message: `La parada ${stopId} no existe`, source: 'open_data',
+        error: 'stop_not_found', message: `La parada ${stopId} no existe`, source: 'gtfs',
         timestamp: new Date().toISOString(),
       });
     }
 
-    const arrivalsRaw = await legacyApi.getArrivals(stopId);
+    const resNative = await tusNativeApi.getEstimations(stopId);
 
-    if (!arrivalsRaw || 'error' in arrivalsRaw || !Array.isArray(arrivalsRaw)) {
+    if (!resNative || 'error' in resNative) {
       return res.status(503).json({
-        error: 'legacy_unavailable', message: 'Legacy API no responde', source: 'legacy_api',
+        error: 'tus_native_unavailable', message: 'TUS Native API no responde', source: 'tus_native',
         timestamp: new Date().toISOString(),
       });
     }
 
-    const entries = Array.isArray(arrivalsRaw[0]) ? arrivalsRaw[0] : [];
     const serverTime = new Date();
-
-    const arrivals = computeEtds(entries, serverTime);
+    const arrivals = computeEtds(resNative, serverTime);
 
     res.json({
       stop: { stopId: stop.stopId, name: stop.name, lat: stop.lat, lng: stop.lng },
       server_time: serverTime.toISOString(),
       arrivals,
-      all_lines: arrivalsRaw[1] || [],
+      all_lines: lineIndex.getLinesForStop(stopId),
     });
   } catch (err: any) {
-    console.error('[time] Error:', err?.message || err);
+    logger.error({ err }, '[time] Error in /arrivals/absolute');
     res.status(500).json({
       error: 'internal_error', message: err?.message || 'Internal error', source: 'internal',
       timestamp: new Date().toISOString(),
