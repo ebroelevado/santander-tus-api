@@ -9,8 +9,8 @@ const router = Router();
 
 router.get('/stops', async (_req: Request, res: Response) => {
   try {
-    const stops = await getStops();
-    const compact = stops.map((s) => [s.stopId, s.lat, s.lng, s.name]);
+    const stops = await stopsCache.getStops();
+    const compact = stops.map((s: any) => [s.stopId, s.lat, s.lng, s.name]);
     res.json({ stops: compact, total: stops.length, source: 'open_data' });
   } catch (err) {
     res.status(500).json({ error: 'map_stops_error', message: 'Failed to fetch stops', source: 'open_data', timestamp: new Date().toISOString() });

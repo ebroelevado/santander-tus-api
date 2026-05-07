@@ -77,10 +77,10 @@ export async function downloadGtfsIfStale(): Promise<boolean> {
 
     // Success - download the file
     const dest = fs.createWriteStream(dbPath);
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       res.body.pipe(dest);
       res.body.on('error', reject);
-      dest.on('finish', resolve);
+      dest.on('finish', () => resolve());
       dest.on('error', reject);
     });
 
