@@ -1,8 +1,6 @@
-# Nixpacks configuration for SANTANDER TUS API
-# Dokploy → Select "Nixpacks" as build method
-
+# nixpacks.toml
 [phases.setup]
-nixPkgs = ["nodejs"]
+nixPkgs = ["nodejs_22"]
 
 [phases.install]
 cmds = ["npm ci"]
