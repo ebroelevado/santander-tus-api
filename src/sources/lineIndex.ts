@@ -314,28 +314,35 @@ export async function ensureLineIndex(): Promise<void> {
   }
 
   buildPromise = (async () => {
-    // L2: Redis Cache
-    const redisLines = await cacheDb.getLineCatalog();
-    const redisIndices = await cacheDb.getIndices();
-    const redisLastBuilt = await cacheDb.getMetadata('last_line_build');
+    // Version check: if the build version changed, force cold start
+    const BUILD_VERSION = 2;
+    const storedVersion = await cacheDb.getMetadata('line_index_version');
+    if (storedVersion && parseInt(storedVersion, 10) >= BUILD_VERSION) {
+      // L2: Redis Cache
+      const redisLines = await cacheDb.getLineCatalog();
+      const redisIndices = await cacheDb.getIndices();
+      const redisLastBuilt = await cacheDb.getMetadata('last_line_build');
 
-    if (redisLines && redisIndices && redisLastBuilt) {
-      linesCache = redisLines;
-      stopToLinesMap = redisIndices.stopToLines;
-      lineIntersectionIndex = redisIndices.intersections;
-      linePositionMaps = redisIndices.positions;
-      stopPositionIndex = buildStopPositionIndex(redisLines);
-      lastBuilt = parseInt(redisLastBuilt, 10);
-      
-      populateStopNameAndCoordsFromGtfs();
-      
-      logger.info('[lineIndex] Loaded catalog from Redis successfully.');
-      return;
+      if (redisLines && redisIndices && redisLastBuilt) {
+        linesCache = redisLines;
+        stopToLinesMap = redisIndices.stopToLines;
+        lineIntersectionIndex = redisIndices.intersections;
+        linePositionMaps = redisIndices.positions;
+        stopPositionIndex = buildStopPositionIndex(redisLines);
+        lastBuilt = parseInt(redisLastBuilt, 10);
+        
+        populateStopNameAndCoordsFromGtfs();
+        
+        logger.info('[lineIndex] Loaded catalog from Redis successfully.');
+        return;
+      }
     }
 
+    logger.warn(`[lineIndex] Cache stale or version mismatch. Rebuilding (v${BUILD_VERSION})...`);
     // L3: Cold Start (Build from GTFS)
-    logger.warn('[lineIndex] Cache miss. Building from GTFS...');
     await performLineIndexBuild();
+    // Store the build version so next deploy skips rebuild
+    await cacheDb.setMetadata('line_index_version', String(BUILD_VERSION));
   })();
 
   try {
