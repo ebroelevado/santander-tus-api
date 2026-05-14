@@ -37,6 +37,9 @@ import dxRouter from './routes/dx';
 
 const app = express();
 
+// Trust the first proxy (Dokploy/Railway sets X-Forwarded-For)
+app.set('trust proxy', 1);
+
 // ── Middleware ──────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());

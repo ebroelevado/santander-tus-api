@@ -63,17 +63,23 @@ export async function getEstimations(
       });
 
       if (!res.ok) {
-        logger.error({ status: res.status, stopId }, '[tusNative] HTTP error from Native API');
+        logger.warn({ status: res.status, stopId }, '[tusNative] HTTP error from Native API');
         return unavailable();
       }
 
-      const json = (await res.json()) as TusNativeResponse;
+      // Some upstream endpoints return empty body for 200 — handle gracefully
+      const text = await res.text();
+      if (!text || text.trim().length === 0) {
+        logger.warn({ stopId }, '[tusNative] Empty response body from Native API');
+        return unavailable();
+      }
+      const json = JSON.parse(text) as TusNativeResponse;
       return json;
     } catch (err: any) {
       if (err.name === 'AbortError') {
         logger.warn({ stopId }, '[tusNative] Timeout fetching estimations');
       } else {
-        logger.error({ err, stopId }, '[tusNative] Fetch error');
+        logger.warn({ err, stopId }, '[tusNative] Fetch error (upstream may be unavailable)');
       }
       return unavailable();
     } finally {
