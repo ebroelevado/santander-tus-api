@@ -10,8 +10,18 @@ const router = Router();
 router.get('/stops', async (_req: Request, res: Response) => {
   try {
     const stops = await stopsCache.getStops();
-    const compact = stops.map((s: any) => [s.stopId, s.lat, s.lng, s.name]);
-    res.json({ stops: compact, total: stops.length, source: 'open_data' });
+    const features = stops.map((s: any) => ({
+      type: 'Feature',
+      properties: {
+        publicId: s.stopId,
+        name: s.name,
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [s.lng, s.lat],
+      },
+    }));
+    res.json({ type: 'FeatureCollection', features, total: stops.length, source: 'gtfs' });
   } catch (err) {
     res.status(500).json({ error: 'map_stops_error', message: 'Failed to fetch stops', source: 'open_data', timestamp: new Date().toISOString() });
   }
@@ -112,6 +122,42 @@ router.get('/lines', async (_req: Request, res: Response) => {
     res.json({ type: 'FeatureCollection', features });
   } catch (err) {
     res.status(500).json({ error: 'map_lines_error', message: 'Failed to build GeoJSON', source: 'cache', timestamp: new Date().toISOString() });
+  }
+});
+
+// ─── GET /api/v1/map/vehicles ──────────────────────────────────────
+router.get('/vehicles', async (_req: Request, res: Response) => {
+  try {
+    const { getVehicles } = await import('../sources/tusNativeApi');
+    const vehicles = await getVehicles();
+    
+    const features = vehicles.map((v) => ({
+      type: 'Feature',
+      properties: {
+        id: v.vehicle,
+        line: v.line,
+        destination: v.destination,
+        delay: v.delay,
+        heading: 0, // Native API doesn't seem to provide heading yet
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [v.lng, v.lat],
+      },
+    }));
+
+    res.json({
+      type: 'FeatureCollection',
+      features,
+      updated: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ 
+      error: 'map_vehicles_error', 
+      message: err?.message || 'Failed to fetch vehicles', 
+      source: 'native', 
+      timestamp: new Date().toISOString() 
+    });
   }
 });
 

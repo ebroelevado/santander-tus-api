@@ -24,8 +24,12 @@ export function initLineMap() {
       idToLabelMap.set(id, label);
     }
 
-    isInitialized = true;
-    logger.info({ count: labelToIdMap.size }, '[lineIdMap] Initialized line mappings');
+    if (labelToIdMap.size > 0) {
+      isInitialized = true;
+      logger.info({ count: labelToIdMap.size }, '[lineIdMap] Initialized line mappings');
+    } else {
+      logger.warn('[lineIdMap] No lines found in GTFS database, will retry on next call');
+    }
   } catch (err) {
     logger.error({ err }, '[lineIdMap] Failed to initialize line mappings');
   }

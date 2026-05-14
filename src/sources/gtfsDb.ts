@@ -154,7 +154,7 @@ export interface GtfsLine {
 
 export function queryLines(): GtfsLine[] {
   const db = openDb();
-  return db.prepare('SELECT lineId, shortName, longName, color, textColor FROM Lines').all() as GtfsLine[];
+  return db.prepare('SELECT lineId, shortName, longName, color, NULL as textColor FROM Lines').all() as GtfsLine[];
 }
 
 export function queryStopLines(): { stopId: number; lineId: number }[] {

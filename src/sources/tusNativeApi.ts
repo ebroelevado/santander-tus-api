@@ -100,3 +100,36 @@ export async function getHealth(): Promise<
 
   return { ok: true, latency_ms: Date.now() - start };
 }
+
+/**
+ * Fetch all active vehicles from the TUS Native API.
+ */
+export async function getVehicles(): Promise<
+  Array<{ vehicle: number; line: string; destination: string; lat: number; lng: number; delay: number }>
+> {
+  const url = `${TUS_NATIVE_BASE}/vehicles`;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 
+        'Authorization': TUS_NATIVE_AUTH,
+        'Accept': 'application/json'
+      },
+    });
+
+    if (!res.ok) return [];
+
+    const json = await res.json() as any[];
+    return json.map((v: any) => ({
+      vehicle: v.vehicle,
+      line: v.line,
+      destination: v.destination,
+      lat: v.lat,
+      lng: v.lon,
+      delay: v.delay || 0,
+    }));
+  } catch (err) {
+    logger.error({ err }, '[tusNative] Failed to fetch vehicles');
+    return [];
+  }
+}
