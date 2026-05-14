@@ -61,8 +61,24 @@ export async function downloadGtfsIfStale(): Promise<boolean> {
       },
     });
 
-    if (res.status === 304) {
-      logger.info('[gtfsDb] GTFS database is already up to date (304)');
+    if (res.status === 304 || res.status === 204) {
+      logger.info(`[gtfsDb] GTFS database is already up to date (${res.status})`);
+      // If the file doesn't exist locally (fresh deploy), force re-download
+      if (!fileExists) {
+        const forceUrl = `${TUS_GTFS_URL}?current=20180630000001`;
+        logger.warn('[gtfsDb] GTFS file missing locally, force re-downloading...');
+        const forceRes = await fetch(forceUrl, { method: 'GET', headers: { 'Authorization': TUS_NATIVE_AUTH } });
+        if (!forceRes.ok) throw new Error(`Failed to force download GTFS: ${forceRes.status}`);
+        const dest = fs.createWriteStream(dbPath);
+        await new Promise<void>((resolve, reject) => {
+          forceRes.body!.pipe(dest);
+          forceRes.body!.on('error', reject);
+          dest.on('finish', () => resolve());
+          dest.on('error', reject);
+        });
+        logger.info('[gtfsDb] GTFS database force-downloaded successfully');
+        return true;
+      }
       return false;
     }
 
