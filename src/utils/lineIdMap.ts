@@ -1,4 +1,5 @@
 import * as gtfsDb from '../sources/gtfsDb';
+import * as lineIndex from '../sources/lineIndex';
 import logger from '../utils/logger';
 
 let labelToIdMap = new Map<string, number>();
@@ -7,32 +8,58 @@ let isInitialized = false;
 
 /**
  * Initializes the line mapping from the GTFS database.
- * Should be called after GTFS is downloaded and line index is building.
+ * Falls back to lineIndex if GTFS Lines table is not available.
  */
 export function initLineMap() {
   try {
+    // Try GTFS database first
     const lines = gtfsDb.queryLines();
     labelToIdMap.clear();
     idToLabelMap.clear();
 
     for (const line of lines) {
-      // Remove quotes from shortName if present (sqlite might return them as '1')
       const label = line.shortName.replace(/['"]/g, '');
       const id = Number(line.lineId);
-      
       labelToIdMap.set(label, id);
       idToLabelMap.set(id, label);
     }
 
     if (labelToIdMap.size > 0) {
       isInitialized = true;
-      logger.info({ count: labelToIdMap.size }, '[lineIdMap] Initialized line mappings');
-    } else {
-      logger.warn('[lineIdMap] No lines found in GTFS database, will retry on next call');
+      logger.info({ count: labelToIdMap.size }, '[lineIdMap] Initialized line mappings from GTFS');
+      return;
+    }
+
+    logger.warn('[lineIdMap] GTFS Lines table empty, falling back to lineIndex');
+  } catch (err) {
+    logger.warn({ err }, '[lineIdMap] GTFS query failed, falling back to lineIndex');
+  }
+
+  // Fallback: populate from lineIndex
+  try {
+    const catalog = lineIndex.getLineCatalog();
+    if (catalog && catalog.length > 0) {
+      labelToIdMap.clear();
+      idToLabelMap.clear();
+      for (const line of catalog) {
+        const label = line.id; // e.g. "1", "LC", "N1"
+        const id = Number(line.schedule_id ?? line.id) || 0;
+        if (id > 0) {
+          labelToIdMap.set(label, id);
+          idToLabelMap.set(id, label);
+        }
+      }
+      if (labelToIdMap.size > 0) {
+        isInitialized = true;
+        logger.info({ count: labelToIdMap.size }, '[lineIdMap] Initialized line mappings from lineIndex fallback');
+        return;
+      }
     }
   } catch (err) {
-    logger.error({ err }, '[lineIdMap] Failed to initialize line mappings');
+    logger.error({ err }, '[lineIdMap] Failed to initialize from lineIndex fallback');
   }
+
+  logger.warn('[lineIdMap] No line data available from any source');
 }
 
 /**
