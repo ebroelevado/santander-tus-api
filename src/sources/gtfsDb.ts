@@ -220,7 +220,7 @@ export function queryStopTimesForDate(date: string, lineId?: number, stopId?: nu
     params.push(lineId);
   }
   if (stopId) {
-    sql += ' AND st.stop_id = ?';
+    sql += ' AND st.stopId = ?';
     params.push(stopId);
   }
   
