@@ -42,7 +42,12 @@ export function buildGraph(catalog: Map<string, LineInfo>): void {
   let edgesAdded = 0;
 
   for (const [lineId, line] of catalog) {
-    for (const [dir, direction] of Object.entries(line.directions)) {
+    for (const [dir, routes] of Object.entries(line.directions)) {
+      // Use the longest route for the transit graph
+      let direction = routes[0];
+      for (const r of routes) {
+        if (r.stops.length > direction.stops.length) direction = r;
+      }
       const stops = direction.stops;
       let accumulatedTime = 0;
       

@@ -50,13 +50,28 @@ export async function getLineStops(req: Request, res: Response) {
 
 export async function getLineRoute(req: Request, res: Response) {
   try {
-    const route = await linesService.getLineRoute(req.params.line as string, (req.query.direction as string) || 'all');
+    const route = await linesService.getLineRoute(req.params.line as string, (req.query.dir as string) || 'all');
     if (!route) {
       return res.status(404).json({ error: 'line_not_found', message: `La línea '${req.params.line}' no existe` });
     }
     res.json(route);
   } catch (err: any) {
     logger.error('[lines] Error:', err?.message || err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'internal_error', message: err?.message || 'Unknown error', source: 'internal', timestamp: new Date().toISOString() });
+    }
+  }
+}
+
+export async function getLineGeometry(req: Request, res: Response) {
+  try {
+    const geometry = await linesService.getLineGeometry(req.params.line as string, (req.query.dir as string) || 'all');
+    if (!geometry) {
+      return res.status(404).json({ error: 'line_not_found', message: `La línea '${req.params.line}' no existe` });
+    }
+    res.json(geometry);
+  } catch (err: any) {
+    logger.error('[lines/geometry] Error:', err?.message || err);
     if (!res.headersSent) {
       res.status(500).json({ error: 'internal_error', message: err?.message || 'Unknown error', source: 'internal', timestamp: new Date().toISOString() });
     }

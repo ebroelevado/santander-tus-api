@@ -55,14 +55,16 @@ export const stopCoordsCache: Map<number, { lat: number; lng: number }> = new Ma
 function buildStopToLinesMap(catalog: Map<string, LineInfo>): Map<number, Set<string>> {
   const map = new Map<number, Set<string>>();
   for (const [lineId, line] of catalog) {
-    for (const dir of Object.values(line.directions)) {
-      for (const stopId of dir.stops) {
-        let lineSet = map.get(stopId);
-        if (!lineSet) {
-          lineSet = new Set();
-          map.set(stopId, lineSet);
+    for (const routes of Object.values(line.directions)) {
+      for (const route of routes) {
+        for (const stopId of route.stops) {
+          let lineSet = map.get(stopId);
+          if (!lineSet) {
+            lineSet = new Set();
+            map.set(stopId, lineSet);
+          }
+          lineSet.add(lineId);
         }
-        lineSet.add(lineId);
       }
     }
   }
@@ -72,20 +74,22 @@ function buildStopToLinesMap(catalog: Map<string, LineInfo>): Map<number, Set<st
 function buildStopPositionIndex(catalog: Map<string, LineInfo>): Map<number, Map<string, Array<{ dir: string; position: number }>>> {
   const index = new Map<number, Map<string, Array<{ dir: string; position: number }>>>();
   for (const [lineId, line] of catalog) {
-    for (const [dir, direction] of Object.entries(line.directions)) {
-      for (let i = 0; i < direction.stops.length; i++) {
-        const stopId = direction.stops[i];
-        let lineMap = index.get(stopId);
-        if (!lineMap) {
-          lineMap = new Map();
-          index.set(stopId, lineMap);
+    for (const [dir, routes] of Object.entries(line.directions)) {
+      for (const route of routes) {
+        for (let i = 0; i < route.stops.length; i++) {
+          const stopId = route.stops[i];
+          let lineMap = index.get(stopId);
+          if (!lineMap) {
+            lineMap = new Map();
+            index.set(stopId, lineMap);
+          }
+          let positions = lineMap.get(lineId);
+          if (!positions) {
+            positions = [];
+            lineMap.set(lineId, positions);
+          }
+          positions.push({ dir, position: i });
         }
-        let positions = lineMap.get(lineId);
-        if (!positions) {
-          positions = [];
-          lineMap.set(lineId, positions);
-        }
-        positions.push({ dir, position: i });
       }
     }
   }
@@ -96,9 +100,11 @@ function buildLineIntersectionIndex(catalog: Map<string, LineInfo>): Map<string,
   const lineStopSets = new Map<string, Set<number>>();
   for (const [lineId, line] of catalog) {
     const stopSet = new Set<number>();
-    for (const dir of Object.values(line.directions)) {
-      for (const stopId of dir.stops) {
-        stopSet.add(stopId);
+    for (const routes of Object.values(line.directions)) {
+      for (const route of routes) {
+        for (const stopId of route.stops) {
+          stopSet.add(stopId);
+        }
       }
     }
     lineStopSets.set(lineId, stopSet);
@@ -130,9 +136,14 @@ function buildLinePositionMaps(catalog: Map<string, LineInfo>): Map<string, Map<
   const maps = new Map<string, Map<string, Map<number, number>>>();
   for (const [lineId, line] of catalog) {
     const dirMaps = new Map<string, Map<number, number>>();
-    for (const [dir, direction] of Object.entries(line.directions)) {
+    for (const [dir, routes] of Object.entries(line.directions)) {
+      // Merge positions from all routes in this direction (first occurrence wins)
       const posMap = new Map<number, number>();
-      direction.stops.forEach((sid, i) => posMap.set(sid, i));
+      for (const route of routes) {
+        route.stops.forEach((sid, i) => {
+          if (!posMap.has(sid)) posMap.set(sid, i);
+        });
+      }
       dirMaps.set(dir, posMap);
     }
     maps.set(lineId, dirMaps);
@@ -142,13 +153,23 @@ function buildLinePositionMaps(catalog: Map<string, LineInfo>): Map<string, Map<
 
 function detectCircular(line: LineInfo): boolean {
   const dirs = Object.entries(line.directions);
-  for (const [, direction] of dirs) {
-    const stops = direction.stops;
-    if (stops.length >= 2 && stops[0] === stops[stops.length - 1]) return true;
+  for (const [, routes] of dirs) {
+    for (const route of routes) {
+      const stops = route.stops;
+      if (stops.length >= 2 && stops[0] === stops[stops.length - 1]) return true;
+    }
   }
   if (dirs.length >= 2) {
-    const setA = new Set(dirs[0][1].stops);
-    const setB = new Set(dirs[1][1].stops);
+    // Use the longest route from each direction for overlap comparison
+    const getLongest = (routes: { destination: string; stops: number[] }[]) => {
+      let best = routes[0];
+      for (const r of routes) {
+        if (r.stops.length > best.stops.length) best = r;
+      }
+      return best;
+    };
+    const setA = new Set(getLongest(dirs[0][1]).stops);
+    const setB = new Set(getLongest(dirs[1][1]).stops);
     if (setA.size === 0 || setB.size === 0) return false;
     let shared = 0;
     for (const s of setA) {
@@ -201,39 +222,80 @@ async function performLineIndexBuild(): Promise<void> {
         const stopTimes = gtfsDb.queryStopTimesForLine(lineId);
         
         const destinations: { [dir: string]: string } = {};
-        const directions: { [dir: string]: { destination: string; stops: number[] } } = {};
+        const directions: { [dir: string]: { destination: string; stops: number[] }[] } = {};
 
-        // Group stop times by direction (direction_id is string '0' or '1' in SQLite Trips table)
-        const stopsByDir = new Map<string, number[]>();
-        
-        // We also need the destination name for each direction
-        // In our schema, Trips has a destination field. 
-        // We'll just take the destination from the first trip we find for each direction.
+        // We need the destination name for each unique (direction, destination) pair
         const db = gtfsDb.openDb();
-        const tripDirs = db.prepare('SELECT direction, destination FROM Trips WHERE lineId = ? GROUP BY direction').all(lineId) as { direction: number, destination: string }[];
+        const tripDirs = db.prepare('SELECT DISTINCT direction, destination FROM Trips WHERE lineId = ? ORDER BY direction, destination').all(lineId) as { direction: number, destination: string }[];
         
         for (const td of tripDirs) {
-          const dirId = String(td.direction) === '0' ? '1' : '2'; // Map '0'/'1' to '1'/'2'
-          const stops = stopTimes
-            .filter(st => String(st.direction_id) === String(td.direction))
-            // Dedup stops in case multiple trips are returned
-            .map(st => st.stop_id);
+          const dirId = String(Number(td.direction) + 1); // Map GTFS 0→'1', 1→'2', 2→'3', etc.
           
-          // Dedup while keeping order (using first trip sequence)
-          const uniqueStops: number[] = [];
-          const seen = new Set<number>();
-          // Find first tripId for this direction to get a clean sequence
-          const firstTrip = stopTimes.find(st => String(st.direction_id) === String(td.direction))?.trip_id;
-          if (firstTrip) {
-            const tripStops = stopTimes.filter(st => st.trip_id === firstTrip).map(st => st.stop_id);
-            directions[dirId] = { destination: td.destination, stops: tripStops };
-            destinations[dirId] = td.destination;
+          // Collect all unique trips for this (direction, destination) combination
+          const tripsForCombo = new Set<number>();
+          for (const st of stopTimes) {
+            if (String(st.direction_id) === String(td.direction)) {
+              // Need to map back from stopTimes to trips to check destination
+              tripsForCombo.add(st.trip_id);
+            }
+          }
+          
+          // Filter trips by destination (since same direction can have different destinations)
+          const validTripIds: number[] = [];
+          for (const tripId of tripsForCombo) {
+            const tripRow = db.prepare('SELECT destination FROM Trips WHERE tripId = ?').get(tripId) as { destination: string } | undefined;
+            if (tripRow && tripRow.destination === td.destination) {
+              validTripIds.push(tripId);
+            }
+          }
+          
+          // Pick the trip with the most stops as the canonical route for this destination
+          let bestTripId: number | null = null;
+          let bestTripStopCount = 0;
+          for (const tripId of validTripIds) {
+            const tripStopCount = stopTimes.filter(st => st.trip_id === tripId).length;
+            if (tripStopCount > bestTripStopCount) {
+              bestTripStopCount = tripStopCount;
+              bestTripId = tripId;
+            }
+          }
+          
+          if (bestTripId) {
+            const tripStops = stopTimes
+              .filter(st => st.trip_id === bestTripId)
+              .sort((a, b) => a.stop_sequence - b.stop_sequence)
+              .map(st => st.stop_id);
+            
+            // Deduplicate consecutive duplicate stops (loop/circular routes)
+            const dedupedStops: number[] = [];
+            for (const sid of tripStops) {
+              if (dedupedStops.length === 0 || dedupedStops[dedupedStops.length - 1] !== sid) {
+                dedupedStops.push(sid);
+              }
+            }
+            
+            if (!directions[dirId]) {
+              directions[dirId] = [];
+            }
+            directions[dirId].push({ destination: td.destination, stops: dedupedStops });
+            
+            // Store the primary destination for this direction (most common one, or first)
+            if (!destinations[dirId]) {
+              destinations[dirId] = td.destination;
+            }
           }
         }
 
-        const stopsDir1 = directions['1']?.stops.length || 0;
-        const stopsDir2 = directions['2']?.stops.length || 0;
-        
+        // Compute stats dynamically for any number of directions
+        const dirKeys = Object.keys(directions).sort();
+        const stopsCounts: Record<string, number> = {};
+        let stopsTotal = 0;
+        for (const dk of dirKeys) {
+          const cnt = directions[dk].reduce((sum, r) => sum + r.stops.length, 0);
+          stopsCounts[dk] = cnt;
+          stopsTotal += cnt;
+        }
+
         // Use color from GTFS, add # if missing
         let color = gl.color;
         if (color && !color.startsWith('#')) color = '#' + color;
@@ -248,9 +310,8 @@ async function performLineIndexBuild(): Promise<void> {
           destinations,
           directions,
           stats: {
-            stops_total: stopsDir1 + stopsDir2,
-            stops_direction_1: stopsDir1,
-            stops_direction_2: stopsDir2,
+            stops_total: stopsTotal,
+            stops_per_direction: stopsCounts,
           },
           has_schedule: hasSchedule(lineLabel),
           active: true,
@@ -315,7 +376,7 @@ export async function ensureLineIndex(): Promise<void> {
 
   buildPromise = (async () => {
     // Version check: if the build version changed, force cold start
-    const BUILD_VERSION = 2;
+    const BUILD_VERSION = 3;
     const storedVersion = await cacheDb.getMetadata('line_index_version');
     if (storedVersion && parseInt(storedVersion, 10) >= BUILD_VERSION) {
       // L2: Redis Cache
@@ -400,7 +461,16 @@ export function getLinesForStop(stopId: number): string[] {
 export function getLineStops(line: string, direction: string): number[] {
   const info = linesCache?.get(line);
   if (!info) return [];
-  return info.directions[direction]?.stops || [];
+  const routes = info.directions[direction];
+  if (!routes || routes.length === 0) return [];
+  // Return the union of all stops across routes in this direction
+  const allStops = new Set<number>();
+  for (const route of routes) {
+    for (const sid of route.stops) {
+      allStops.add(sid);
+    }
+  }
+  return Array.from(allStops);
 }
 
 export function getStopLines(stopId: number): string[] {

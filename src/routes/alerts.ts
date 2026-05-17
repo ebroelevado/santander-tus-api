@@ -67,9 +67,10 @@ router.get('/lines/:line/status', async (req: Request, res: Response) => {
     let lastKnownBusMinutesAgo: number | null = null;
     let isActive = true;
 
-    const dir1Stops = info.directions['1']?.stops;
-    if (dir1Stops && dir1Stops.length > 0) {
-      const checkStop = dir1Stops[0];
+    const firstDir = Object.keys(info.directions).sort()[0];
+    const dirStops = firstDir ? info.directions[firstDir]?.[0]?.stops : undefined;
+    if (dirStops && dirStops.length > 0) {
+      const checkStop = dirStops[0];
       const resNative = await tusNativeApi.getEstimations(checkStop);
 
       if (!resNative || 'error' in resNative) {

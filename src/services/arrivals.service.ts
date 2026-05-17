@@ -23,16 +23,20 @@ function getUpcomingStops(lineId: string, currentStopId: number, destination: st
   const line = lineIndex.getLine(lineId);
   if (!line) return [];
 
-  // 1. Identify the direction based on destination name
-  let direction = '1';
-  if (line.directions['2'] && line.directions['2'].destination.toUpperCase() === destination.toUpperCase()) {
-    direction = '2';
-  } else if (line.directions['1'] && line.directions['1'].destination.toUpperCase() !== destination.toUpperCase()) {
-    // If it doesn't match dir 1 exactly, but dir 2 is a better match or exists
-    if (line.directions['2']) direction = '2';
+  // 1. Identify the direction based on destination name (supports any number of directions)
+  let direction = Object.keys(line.directions).sort()[0] || '1';
+  let routeIndex = 0;
+  for (const [dirId, routes] of Object.entries(line.directions)) {
+    for (let i = 0; i < routes.length; i++) {
+      if (routes[i].destination.toUpperCase() === destination.toUpperCase()) {
+        direction = dirId;
+        routeIndex = i;
+        break;
+      }
+    }
   }
 
-  const stops = line.directions[direction]?.stops || [];
+  const stops = line.directions[direction]?.[routeIndex]?.stops || [];
   const currentIndex = stops.indexOf(currentStopId);
 
   if (currentIndex === -1) return [];

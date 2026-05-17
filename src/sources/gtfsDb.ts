@@ -186,6 +186,22 @@ export interface GtfsStopTime {
   direction_id: number;
 }
 
+export interface GtfsRoutePoint {
+  sequence: number;
+  lat: number;
+  lon: number;
+}
+
+export function queryRoutePoints(routeId: number): GtfsRoutePoint[] {
+  const db = openDb();
+  return db.prepare(`
+    SELECT sequence, latitude as lat, longitude as lon
+    FROM RoutePoints
+    WHERE routeId = ?
+    ORDER BY sequence ASC
+  `).all(routeId) as GtfsRoutePoint[];
+}
+
 export function queryStopTimesForLine(lineId: number): GtfsStopTime[] {
   const db = openDb();
   // Note: the schema in LatexDOC shows Trips has lineId and direction (string '0'/'1')

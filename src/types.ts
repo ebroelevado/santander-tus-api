@@ -18,8 +18,8 @@ export interface LineInfo {
   text_color: string;
   schedule_id: string | null;
   destinations: { [dir: string]: string };
-  directions: { [dir: string]: { destination: string; stops: number[] } };
-  stats: { stops_total: number; stops_direction_1: number; stops_direction_2: number };
+  directions: { [dir: string]: { destination: string; stops: number[] }[] };
+  stats: { stops_total: number; stops_per_direction: Record<string, number> };
   has_schedule: boolean;
   active: boolean;
   is_circular: boolean;

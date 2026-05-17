@@ -65,9 +65,11 @@ export async function buildConnections(stopId: number): Promise<ConnectionEntry[
     const lineInfo = catalog.find(l => l.id === lineId);
     if (!lineInfo) continue;
     
-    for (const dir of Object.values(lineInfo.directions)) {
-      if (dir.stops.includes(stopId)) {
-        dir.stops.forEach(s => reachableStops.add(s));
+    for (const routes of Object.values(lineInfo.directions)) {
+      for (const route of routes) {
+        if (route.stops.includes(stopId)) {
+          route.stops.forEach((s: number) => reachableStops.add(s));
+        }
       }
     }
   }

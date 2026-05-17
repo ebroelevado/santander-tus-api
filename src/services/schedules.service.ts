@@ -39,8 +39,8 @@ export async function fetchLineSchedules(lineLabel: string, direction: string, d
   const date = getRepresentativeDate(day);
   const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId);
   
-  // Map direction '1'/'2' to GTFS '0'/'1'
-  const gtfsDir = direction === '1' ? '0' : '1';
+  // Map direction '1'/'2'/... to GTFS '0'/'1'/...
+  const gtfsDir = String(Number(direction) - 1);
   
   // Get unique times for the ORIGIN (stop_sequence = 1)
   const originTimes = stopTimes
@@ -74,7 +74,7 @@ export async function fetchNextService(lineLabel: string, direction: string, day
 
   const date = getRepresentativeDate(day);
   const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId);
-  const gtfsDir = direction === '1' ? '0' : '1';
+  const gtfsDir = String(Number(direction) - 1);
 
   const originTimes = stopTimes
     .filter(st => String(st.direction_id) === gtfsDir && st.stop_sequence === 1)
@@ -131,8 +131,9 @@ export async function fetchStopSchedules(stopId: number, day: string) {
     const lineId = lineIdMap.resolveLineId(label);
     if (!lineId) continue;
 
-    for (const dir of ['1', '2']) {
-      const gtfsDir = dir === '1' ? '0' : '1';
+    for (let dirNum = 1; dirNum <= 10; dirNum++) {
+      const dir = String(dirNum);
+      const gtfsDir = String(dirNum - 1);
       const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId, stopId);
       const times = stopTimes
         .filter(st => String(st.direction_id) === gtfsDir)
@@ -162,7 +163,7 @@ export async function getNextDepartureFromOrigin(lineLabel: string, direction: s
   if (!lineId) return null;
 
   const date = getRepresentativeDate(day);
-  const gtfsDir = direction === '1' ? '0' : '1';
+  const gtfsDir = String(Number(direction) - 1);
   
   const stopTimes = gtfsDb.queryStopTimesForDate(date, lineId);
   const originTimes = stopTimes

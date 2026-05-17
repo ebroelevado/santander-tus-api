@@ -66,14 +66,11 @@ router.get('/lines/:line', async (req: Request, res: Response) => {
       }
     };
 
-    if (direction === 'all' || direction === '1') {
-      const dir1 = lineInfo.directions['1'];
-      if (dir1) await buildFeature('1', dir1.stops, dir1.destination);
-    }
-
-    if (direction === 'all' || direction === '2') {
-      const dir2 = lineInfo.directions['2'];
-      if (dir2) await buildFeature('2', dir2.stops, dir2.destination);
+    for (const [dId, routes] of Object.entries(lineInfo.directions)) {
+      if (direction !== 'all' && dId !== direction) continue;
+      for (const route of routes) {
+        await buildFeature(dId, route.stops, route.destination);
+      }
     }
 
     res.json({ type: 'FeatureCollection', features });
@@ -94,27 +91,29 @@ router.get('/lines', async (_req: Request, res: Response) => {
 
     for (const line of lines) {
       for (const dir of Object.keys(line.directions)) {
-        const dirData = line.directions[dir];
-        const coordinates: [number, number][] = [];
-        for (const sid of dirData.stops) {
-          const c = stopCoordsMap.get(sid);
-          if (c) coordinates.push([c.lng, c.lat]);
-        }
-        
-        if (coordinates.length > 0) {
-          features.push({
-            type: 'Feature',
-            properties: {
-              line: line.id,
-              direction: dir,
-              destination: dirData.destination,
-              color: line.color,
-            },
-            geometry: {
-              type: 'LineString',
-              coordinates,
-            },
-          });
+        const routes = line.directions[dir];
+        for (const route of routes) {
+          const coordinates: [number, number][] = [];
+          for (const sid of route.stops) {
+            const c = stopCoordsMap.get(sid);
+            if (c) coordinates.push([c.lng, c.lat]);
+          }
+          
+          if (coordinates.length > 0) {
+            features.push({
+              type: 'Feature',
+              properties: {
+                line: line.id,
+                direction: dir,
+                destination: route.destination,
+                color: line.color,
+              },
+              geometry: {
+                type: 'LineString',
+                coordinates,
+              },
+            });
+          }
         }
       }
     }
